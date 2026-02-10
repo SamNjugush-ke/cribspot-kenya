@@ -1,0 +1,559 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  
+}
+
+model User {
+  id                      String                    @id @default(cuid())
+  name                    String
+  email                   String                    @unique
+  password                String
+  role                    Role                      @default(LISTER)
+  isBanned                Boolean                   @default(false)
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  phone                   String?
+  agentProfile            AgentProfile?
+  alerts                  Alert[]
+  analyticsLogs           AnalyticsLog[]
+  auditLogs               AuditLog[]
+  blogs                   Blog[]
+  comments                BlogComment[]
+  ConversationParticipant ConversationParticipant[]
+  favorites               Favorite[]
+  messagesReceived        Message[]                 @relation("ReceivedMessages")
+  messagesSent            Message[]                 @relation("SentMessages")
+  payments                Payment[]
+  properties              Property[]
+  subscriptions           Subscription[]
+  supportMessages         SupportMessage[]
+  ticketsAssigned         SupportTicket[]           @relation("AssignedTickets")
+  ticketsCreated          SupportTicket[]           @relation("TicketsCreated")
+  UserPermissionOverride  UserPermissionOverride[]
+  UserRoleDefinition      UserRoleDefinition[]
+}
+
+model Property {
+  id            String            @id @default(cuid())
+  title         String
+  location      String
+  description   String
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  featured      Boolean           @default(false)
+  status        ListingStatus     @default(DRAFT)
+  consumedSlot  Boolean           @default(false)
+  listerId      String
+  featuredUntil DateTime?
+  area          String?
+  county        String?
+  constituency  String?
+  ward          String?
+  favorites     Favorite[]
+  images        Image[]
+  boosts        ListingBoost[]
+  lister        User              @relation(fields: [listerId], references: [id])
+  amenities     PropertyAmenity[]
+  units         Unit[]
+}
+
+model Unit {
+  id         String   @id @default(cuid())
+  bedrooms   Int
+  bathrooms  Int
+  rent       Int
+  count      Int
+  available  Int
+  rented     Int
+  status     String
+  type       String
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+}
+
+model Image {
+  id         String   @id @default(cuid())
+  url        String
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+}
+
+model Favorite {
+  id         String   @id @default(cuid())
+  userId     String
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, propertyId])
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  senderId       String
+  receiverId     String
+  content        String
+  sentAt         DateTime      @default(now())
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  receiver       User          @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  sender         User          @relation("SentMessages", fields: [senderId], references: [id])
+
+  @@index([conversationId, sentAt])
+}
+
+model Alert {
+  id           String   @id @default(cuid())
+  email        String
+  location     String?
+  createdAt    DateTime @default(now())
+  minPrice     Int?
+  maxPrice     Int?
+  propertyType String?
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+}
+
+model Conversation {
+  id           String                    @id @default(cuid())
+  type         ConversationType          @default(DIRECT)
+  subject      String?
+  propertyId   String?
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  participants ConversationParticipant[]
+  messages     Message[]
+}
+
+model ConversationParticipant {
+  id             String          @id @default(cuid())
+  conversationId String
+  userId         String
+  role           ParticipantRole @default(MEMBER)
+  joinedAt       DateTime        @default(now())
+  lastReadAt     DateTime?
+  conversation   Conversation    @relation(fields: [conversationId], references: [id])
+  user           User            @relation(fields: [userId], references: [id])
+
+  @@unique([conversationId, userId])
+}
+
+model Blog {
+  id              String         @id @default(cuid())
+  title           String
+  coverImage      String?
+  published       Boolean        @default(false)
+  publishedAt     DateTime?
+  authorId        String
+  canonicalUrl    String?
+  contentFormat   ContentFormat  @default(TIPTAP)
+  contentHtml     String?
+  contentJson     Json?
+  contentText     String?
+  createdAt       DateTime       @default(now())
+  excerpt         String?
+  ogImage         String?
+  scheduledAt     DateTime?
+  seoDesc         String?
+  seoKeywords     String?
+  seoTitle        String?
+  slug            String         @unique
+  updatedAt       DateTime       @updatedAt
+  readingTimeMins Int?
+  authorUser      User           @relation(fields: [authorId], references: [id])
+  categories      BlogCategory[]
+  comments        BlogComment[]
+  tags            BlogTag[]
+  views           BlogView[]
+
+  @@index([published, publishedAt])
+  @@index([createdAt])
+  @@index([updatedAt])
+}
+
+model BlogComment {
+  id         String    @id @default(cuid())
+  content    String
+  createdAt  DateTime  @default(now())
+  blogId     String
+  userId     String
+  hiddenAt   DateTime?
+  isApproved Boolean   @default(true)
+
+  // Threading (self-relation)
+  parentId   String?
+  parent     BlogComment?  @relation("BlogCommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    BlogComment[] @relation("BlogCommentThread")
+
+  blog       Blog      @relation(fields: [blogId], references: [id])
+  user       User      @relation(fields: [userId], references: [id])
+
+  @@index([blogId, createdAt])
+  @@index([parentId])
+}
+
+
+model BlogView {
+  id        String   @id @default(cuid())
+  blogId    String
+  userId    String?
+  ip        String?
+  createdAt DateTime @default(now())
+  blog      Blog     @relation(fields: [blogId], references: [id])
+
+  @@index([blogId, createdAt])
+}
+
+model Tag {
+  id    String    @id @default(cuid())
+  name  String    @unique
+  slug  String    @unique
+  blogs BlogTag[]
+}
+
+model BlogTag {
+  blogId String
+  tagId  String
+  blog   Blog   @relation(fields: [blogId], references: [id])
+  tag    Tag    @relation(fields: [tagId], references: [id])
+
+  @@id([blogId, tagId])
+}
+
+model Category {
+  id    String         @id @default(cuid())
+  name  String         @unique
+  slug  String         @unique
+  blogs BlogCategory[]
+}
+
+model BlogCategory {
+  blogId     String
+  categoryId String
+  blog       Blog     @relation(fields: [blogId], references: [id])
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  @@id([blogId, categoryId])
+}
+
+model SubscriptionPlan {
+  id               String         @id @default(cuid())
+  name             String         @unique
+  price            Int
+  durationInDays   Int
+  totalListings    Int
+  featuredListings Int
+  isActive         Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+  CouponPlan       CouponPlan[]
+  payments         Payment[]
+  subscriptions    Subscription[]
+}
+
+model Subscription {
+  id                String           @id @default(cuid())
+  userId            String
+  planId            String
+  startedAt         DateTime         @default(now())
+  expiresAt         DateTime
+  remainingListings Int
+  remainingFeatured Int
+  isActive          Boolean          @default(true)
+  plan              SubscriptionPlan @relation(fields: [planId], references: [id])
+  user              User             @relation(fields: [userId], references: [id])
+}
+
+model AnalyticsLog {
+  id        String   @id @default(cuid())
+  eventType String
+  path      String?
+  referrer  String?
+  ip        String?
+  userAgent String?
+  userId    String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+model Payment {
+  id              String           @id @default(cuid())
+  userId          String
+  planId          String
+  amount          Int
+  status          PaymentStatus    @default(PENDING)
+  externalRef     String?
+  createdAt       DateTime         @default(now())
+  idempotencyKey  String?          @unique
+  provider        PaymentProvider  @default(MPESA)
+  transactionCode String?
+  plan            SubscriptionPlan @relation(fields: [planId], references: [id])
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([provider, externalRef])
+  @@index([transactionCode])
+}
+
+model AgentProfile {
+  id        String      @id @default(cuid())
+  userId    String      @unique
+  name      String
+  location  String?
+  dailyFee  Int?
+  phone     String
+  whatsapp  String?
+  bio       String?
+  status    AgentStatus @default(PENDING)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  user      User        @relation(fields: [userId], references: [id])
+}
+
+model ListingBoost {
+  id         String      @id @default(cuid())
+  propertyId String
+  startsAt   DateTime    @default(now())
+  endsAt     DateTime
+  amount     Int
+  status     BoostStatus @default(ACTIVE)
+  property   Property    @relation(fields: [propertyId], references: [id])
+}
+
+model RoleDefinition {
+  id          String               @id @default(cuid())
+  name        String               @unique
+  description String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  grants      PermissionGrant[]
+  users       UserRoleDefinition[]
+}
+
+model PermissionGrant {
+  id         String         @id @default(cuid())
+  roleId     String
+  permission Permission
+  allow      Boolean        @default(true)
+  role       RoleDefinition @relation(fields: [roleId], references: [id])
+
+  @@unique([roleId, permission])
+}
+
+model UserRoleDefinition {
+  id     String         @id @default(cuid())
+  userId String
+  roleId String
+  role   RoleDefinition @relation(fields: [roleId], references: [id])
+  user   User           @relation(fields: [userId], references: [id])
+
+  @@unique([userId, roleId])
+}
+
+model UserPermissionOverride {
+  id         String     @id @default(cuid())
+  userId     String
+  permission Permission
+  allow      Boolean    @default(true)
+  user       User       @relation(fields: [userId], references: [id])
+
+  @@unique([userId, permission])
+}
+
+model Amenity {
+  id         String            @id @default(cuid())
+  name       String            @unique
+  createdAt  DateTime          @default(now())
+  properties PropertyAmenity[]
+}
+
+model PropertyAmenity {
+  id         String   @id @default(cuid())
+  propertyId String
+  amenityId  String
+  amenity    Amenity  @relation(fields: [amenityId], references: [id])
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  @@unique([propertyId, amenityId])
+}
+
+model SupportTicket {
+  id           String           @id @default(cuid())
+  ticketNumber String           @unique
+  subject      String
+  category     String?
+  status       TicketStatus     @default(OPEN)
+  createdById  String
+  assignedToId String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  messages     SupportMessage[]
+  assignedTo   User?            @relation("AssignedTickets", fields: [assignedToId], references: [id])
+  createdBy    User             @relation("TicketsCreated", fields: [createdById], references: [id])
+}
+
+model SupportMessage {
+  id        String        @id @default(cuid())
+  ticketId  String
+  senderId  String
+  content   String
+  fileUrl   String?
+  createdAt DateTime      @default(now())
+  sender    User          @relation(fields: [senderId], references: [id])
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id])
+}
+
+model SystemSetting {
+  id           String   @id @default(cuid())
+  brandName    String
+  supportEmail String
+  updatedAt    DateTime @updatedAt
+  config       Json     @default("{}")
+}
+
+model Coupon {
+  id              String       @id @default(cuid())
+  code            String       @unique
+  percentOff      Int?
+  amountOff       Int?
+  startsAt        DateTime
+  endsAt          DateTime?
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  applicablePlans CouponPlan[]
+}
+
+model CouponPlan {
+  id                 String           @id @default(cuid())
+  couponId           String
+  subscriptionPlanId String
+  coupon             Coupon           @relation(fields: [couponId], references: [id])
+  subscriptionPlan   SubscriptionPlan @relation(fields: [subscriptionPlanId], references: [id])
+
+  @@unique([couponId, subscriptionPlanId])
+}
+
+model AuditLog {
+  id                 String   @id @default(cuid())
+  actorId            String?
+  action             String
+  targetType         String?
+  targetId           String?
+  metadata           Json     @default("{}")
+  impersonatedUserId String?
+  ip                 String?
+  userAgent          String?
+  createdAt          DateTime @default(now())
+  actor              User?    @relation(fields: [actorId], references: [id])
+
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@index([targetType, targetId])
+  @@index([impersonatedUserId, createdAt])
+}
+
+enum ContentFormat {
+  TIPTAP
+  EDITORJS
+  MARKDOWN
+  HTML
+}
+
+enum Role {
+  ADMIN
+  LISTER
+  RENTER
+  SUPER_ADMIN
+  AGENT
+  EDITOR
+}
+
+enum ListingStatus {
+  DRAFT
+  PUBLISHED
+  UNPUBLISHED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  EXPIRED
+}
+
+enum PaymentProvider {
+  MPESA
+  CARD
+}
+
+enum AgentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum BoostStatus {
+  ACTIVE
+  EXPIRED
+}
+
+enum Permission {
+  ACCESS_FULL_ANALYTICS
+  VIEW_OWN_PERFORMANCE
+  VIEW_ALL_MESSAGES
+  REPLY_MESSAGES
+  BULK_NOTIFICATIONS
+  MANAGE_BLOG_SETTINGS
+  BLOG_CRUD
+  MODERATE_COMMENTS
+  SEND_ANNOUNCEMENTS
+  CONFIGURE_PAYMENT_GATEWAYS
+  VIEW_TRANSACTIONS_ALL
+  MANUAL_REFUND
+  VIEW_OWN_INVOICES
+  MANAGE_PACKAGES
+  ASSIGN_PACKAGES
+  ENFORCE_QUOTAS
+  VIEW_QUOTA_DASHBOARDS
+  VIEW_OWN_QUOTA
+  APPROVE_LISTINGS
+  FEATURE_LISTINGS
+  REMOVE_FLAG_LISTINGS
+  CRUD_OWN_LISTINGS
+  PUBLISH_OWN_LISTINGS
+  MANAGE_LISTER_AGENT_ACCOUNTS
+  APPROVE_AGENT_PROFILES
+  MODERATE_RENTERS
+  MANAGE_SUPER_ADMIN_ACCOUNTS
+  CHANGE_PLATFORM_SETTINGS
+  EDIT_ROLE_DEFINITIONS
+  VIEW_SYSTEM_LOGS
+  MAINTENANCE_BACKUPS
+  EXPORT_DATA
+  IMPERSONATE_USER
+  MANAGE_SETTINGS
+  VIEW_ANALYTICS
+  MANAGE_USERS
+}
+
+enum ConversationType {
+  DIRECT
+  SUPPORT
+  GROUP
+  BROADCAST
+}
+
+enum ParticipantRole {
+  MEMBER
+  ADMIN
+}
+
+enum TicketStatus {
+  OPEN
+  CLOSED
+}

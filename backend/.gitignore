@@ -1,0 +1,14 @@
+# Backend-specific ignores
+node_modules/
+.env
+dist/
+prisma/migrations/
+
+# Prevent parent directory junk
+../
+../../
+
+# Optional extras
+*.log
+*.zip
+*.docx

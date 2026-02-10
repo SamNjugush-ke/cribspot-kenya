@@ -1,0 +1,19 @@
+# deps / builds
+**/node_modules/
+**/.next/
+**/dist/
+**/.turbo/
+**/.cache/
+
+# env
+**/.env
+**/.env.*
+!.env.example
+
+# uploads / runtime files
+backend/uploads/
+**/*.log
+
+# build artifacts / zips (IMPORTANT)
+**/*-prod.zip
+**/*.zip
