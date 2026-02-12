@@ -11,6 +11,8 @@ const DEFAULT_AMENITIES = [
   "Swimming Pool",
   "Backup Generator",
   "CCTV",
+  "Chandelier",
+  "Wi-Fi",
   "24/7 Security",
 ];
 
