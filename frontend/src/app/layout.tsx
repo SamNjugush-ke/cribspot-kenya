@@ -1,27 +1,24 @@
-'use client';
+import "./globals.css";
+import LayoutShell from "./layout-shell";
 
-import './globals.css';
-import { Header } from '@/components/Header';
-import { Footer } from '@/components/Footer';
-import { usePathname } from 'next/navigation';
-import AuthBootstrap from '@/components/auth/AuthBootstrap';
+export const metadata = {
+  title: "CribSpot Kenya",
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/favicon.ico",
+  },
+};
 
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname();
-  const isDashboard = pathname?.startsWith('/dashboard');
-
   return (
     <html lang="en">
       <body className="min-h-screen flex flex-col">
-        <AuthBootstrap />
-        {/* Show public header/footer only outside dashboard */}
-        {!isDashboard && <Header />}
-        <main className="flex-1">{children}</main>
-        {!isDashboard && <Footer />}
+        <LayoutShell>{children}</LayoutShell>
       </body>
     </html>
   );
