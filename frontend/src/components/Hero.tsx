@@ -151,7 +151,7 @@ export function Hero() {
                     <SelectValue placeholder="Type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ALL">All Types</SelectItem>
+                    <SelectItem value="ALL">All Property Types</SelectItem>
                     {PROPERTY_TYPES.map((t) => (
                       <SelectItem key={t} value={t}>
                         {t}

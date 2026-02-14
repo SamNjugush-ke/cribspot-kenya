@@ -11,8 +11,8 @@ const {
   MPESA_SHORT_CODE,      
   MPESA_PASSKEY,
   MPESA_CALLBACK_URL,
-  MPESA_BASE_URL = "https://sandbox.safaricom.co.ke",
-  MPESA_TILL_NUMBER,     // Till number for Buy Goods PartyB (recommended)
+  MPESA_BASE_URL,
+  MPESA_TILL_NUMBER,     
 } = process.env;
 
 if (
@@ -78,8 +78,8 @@ export async function initiateStkPush(params: {
 
   // For Buy Goods STK, PartyB should be the Till number.
   // If MPESA_TILL_NUMBER isn't set, we fall back to MPESA_SHORT_CODE.
-  //const partyB = Number(MPESA_TILL_NUMBER || MPESA_SHORT_CODE);
-  const partyB = Number(MPESA_SHORT_CODE);
+  const partyB = Number(MPESA_TILL_NUMBER || MPESA_SHORT_CODE);
+  //const partyB = Number(MPESA_SHORT_CODE);
 
 
   const payload = {
@@ -88,10 +88,10 @@ export async function initiateStkPush(params: {
     Timestamp: ts,
 
     // Till / Buy Goods
-    //TransactionType: "CustomerBuyGoodsOnline",
+    TransactionType: "CustomerBuyGoodsOnline",
 
     //Paybill
-    TransactionType: "CustomerPayBillOnline",
+    //TransactionType: "CustomerPayBillOnline",
 
 
     Amount: amount,

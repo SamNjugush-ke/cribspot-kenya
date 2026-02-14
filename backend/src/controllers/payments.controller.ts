@@ -52,8 +52,7 @@ async function activateSubscriptionFromPayment(paymentId: string) {
       data: { isActive: false },
     });
 
-    // Find the most recent subscription (active or inactive) to extend, if you prefer.
-    // But since we just deactivated actives, we choose the latest one to "continue".
+    // Continue/extend the latest subscription record
     const latest = await tx.subscription.findFirst({
       where: { userId: payment.userId },
       orderBy: { startedAt: "desc" },
@@ -66,7 +65,7 @@ async function activateSubscriptionFromPayment(paymentId: string) {
       await tx.subscription.update({
         where: { id: latest.id },
         data: {
-          planId: plan.id, // upgrade to paid plan (important)
+          planId: plan.id,
           startedAt: latest.startedAt ?? now,
           expiresAt: newExpiry,
           remainingListings: (latest.remainingListings ?? 0) + plan.totalListings,
@@ -173,6 +172,28 @@ async function initiateForPayment(args: {
   return { providerRef, providerMsg };
 }
 
+/** Mark a payment as FAILED when STK initiation did not return a providerRef */
+async function failPaymentOnNoProviderRef(args: {
+  paymentId: string;
+  providerMsg?: string;
+}) {
+  try {
+    await prisma.payment.update({
+      where: { id: args.paymentId },
+      data: { status: PaymentStatus.FAILED },
+    });
+  } catch (e) {
+    // don't block response on a DB update failure
+    console.error("[payments] failed to mark payment FAILED:", args.paymentId, e);
+  }
+
+  return {
+    message: "STK push failed to start",
+    paymentId: args.paymentId,
+    providerMsg: args.providerMsg ?? "No provider reference returned",
+  };
+}
+
 /** ---------------- B1: Init STK payment ---------------- */
 /** POST /api/payments/mpesa/init  body: { planId: string, phone: string } */
 export const initMpesaPayment = async (req: Request, res: Response) => {
@@ -181,23 +202,25 @@ export const initMpesaPayment = async (req: Request, res: Response) => {
     const { planId, phone } = req.body as { planId?: string; phone?: string };
 
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
-    if (!planId || !phone) return res.status(400).json({ message: "planId and phone are required" });
+    if (!planId || !phone)
+      return res.status(400).json({ message: "planId and phone are required" });
 
     const normalized = normalizeMsisdn(phone);
     if (!normalized) {
       return res.status(400).json({
-        message: "Invalid phone format. Use 2547XXXXXXXX, 07XXXXXXXX, or +2547XXXXXXXX.",
+        message:
+          "Invalid phone format. Use 2547XXXXXXXX, 07XXXXXXXX, or +2547XXXXXXXX.",
       });
     }
 
     const plan = await prisma.subscriptionPlan.findUnique({ where: { id: planId } });
-    if (!plan || !plan.isActive) return res.status(404).json({ message: "Plan not found or inactive" });
+    if (!plan || !plan.isActive)
+      return res.status(404).json({ message: "Plan not found or inactive" });
 
     const idemBase = buildIdempotencyKey(userId, planId, plan.price);
 
     // Reuse recent pending payment (15 minutes)
     const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000);
-
     const recentPending = await prisma.payment.findFirst({
       where: {
         idempotencyKey: idemBase,
@@ -221,9 +244,10 @@ export const initMpesaPayment = async (req: Request, res: Response) => {
       });
     }
 
-    // Create new PENDING payment, but gracefully handle idempotency collisions (P2002)
-    let payment = await prisma.payment
-      .create({
+    // Create new payment row; handle idempotency collisions cleanly
+    let payment;
+    try {
+      payment = await prisma.payment.create({
         data: {
           userId,
           planId,
@@ -232,83 +256,115 @@ export const initMpesaPayment = async (req: Request, res: Response) => {
           provider: PaymentProvider.MPESA,
           idempotencyKey: idemBase,
         },
-      })
-      .catch(async (e: any) => {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-          // If idempotencyKey is unique, Prisma throws here. Fetch and reuse.
-          const existing = await prisma.payment.findFirst({
-            where: { idempotencyKey: idemBase, userId, planId, amount: plan.price },
-            orderBy: { createdAt: "desc" },
+      });
+    } catch (e: any) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+        const existing = await prisma.payment.findFirst({
+          where: { idempotencyKey: idemBase, userId, planId, amount: plan.price },
+          orderBy: { createdAt: "desc" },
+        });
+
+        if (!existing) throw e;
+
+        // Already paid: return a consistent response (no new STK)
+        if (existing.status === PaymentStatus.SUCCESS) {
+          return res.status(200).json({
+            message: "Payment already completed",
+            paymentId: existing.id,
+            providerRef: existing.externalRef,
           });
+        }
 
-          if (!existing) throw e;
-
-          if (existing.status === PaymentStatus.SUCCESS) {
-            return existing; // already paid
-          }
-
-          if (existing.status === PaymentStatus.FAILED) {
-            // Create a retry row with a different key
-            return prisma.payment.create({
-              data: {
-                userId,
-                planId,
-                amount: plan.price,
-                status: PaymentStatus.PENDING,
-                provider: PaymentProvider.MPESA,
-                idempotencyKey: `${idemBase}:retry:${Date.now()}`,
-              },
-            });
-          }
-
-          // PENDING but stale or missing externalRef → re-initiate on same row
-          const isStale = existing.createdAt < fifteenMinAgo;
-          if (isStale || !existing.externalRef) {
-            const stkRes = await initiateForPayment({
-              paymentId: existing.id,
+        // Failed: create a fresh retry row
+        if (existing.status === PaymentStatus.FAILED) {
+          const retry = await prisma.payment.create({
+            data: {
+              userId,
               planId,
               amount: plan.price,
-              phone: normalized,
-            });
+              status: PaymentStatus.PENDING,
+              provider: PaymentProvider.MPESA,
+              idempotencyKey: `${idemBase}:retry:${Date.now()}`,
+            },
+          });
 
-            return res.status(200).json({
-              message: "STK push re-initiated",
+          const stkRes = await initiateForPayment({
+            paymentId: retry.id,
+            planId,
+            amount: plan.price,
+            phone: normalized,
+          });
+
+          if (!stkRes.providerRef) {
+            const payload = await failPaymentOnNoProviderRef({
+              paymentId: retry.id,
+              providerMsg: stkRes.providerMsg,
+            });
+            return res.status(502).json(payload);
+          }
+
+          return res.status(201).json({
+            message: "STK push initiated",
+            paymentId: retry.id,
+            providerRef: stkRes.providerRef,
+            providerMsg: stkRes.providerMsg,
+          });
+        }
+
+        // PENDING:
+        // If stale or missing externalRef, re-initiate on same row.
+        const isStale = existing.createdAt < fifteenMinAgo;
+        if (isStale || !existing.externalRef) {
+          const stkRes = await initiateForPayment({
+            paymentId: existing.id,
+            planId,
+            amount: plan.price,
+            phone: normalized,
+          });
+
+          if (!stkRes.providerRef) {
+            const payload = await failPaymentOnNoProviderRef({
               paymentId: existing.id,
-              providerRef: stkRes.providerRef ?? existing.externalRef,
-              providerMsg: stkRes.providerMsg ?? "STK re-initiated. Check your phone.",
-            }) as any; // early return style
+              providerMsg: stkRes.providerMsg,
+            });
+            return res.status(502).json(payload);
           }
 
           return res.status(200).json({
-            message: "Reused existing pending payment",
+            message: "STK push re-initiated",
             paymentId: existing.id,
-            providerRef: existing.externalRef,
-            providerMsg: "Pending STK already initiated. Check your phone.",
-          }) as any; // early return style
+            providerRef: stkRes.providerRef,
+            providerMsg: stkRes.providerMsg ?? "STK re-initiated. Check your phone.",
+          });
         }
 
-        throw e;
-      });
+        // Still fresh and has externalRef → tell user to check phone
+        return res.status(200).json({
+          message: "Reused existing pending payment",
+          paymentId: existing.id,
+          providerRef: existing.externalRef,
+          providerMsg: "Pending STK already initiated. Check your phone.",
+        });
+      }
 
-    // If we already responded above (P2002 branch returning res.json), stop.
-    if (!payment || (payment as any).headersSent) return;
-
-    // If "already paid" case: return consistent response (no new STK)
-    if (payment.status === PaymentStatus.SUCCESS) {
-      return res.status(200).json({
-        message: "Payment already completed",
-        paymentId: payment.id,
-        providerRef: payment.externalRef,
-      });
+      throw e;
     }
 
-    // Initiate STK push for the payment row
+    // Initiate STK push for the new payment row
     const stkRes = await initiateForPayment({
       paymentId: payment.id,
       planId,
       amount: plan.price,
       phone: normalized,
     });
+
+    if (!stkRes.providerRef) {
+      const payload = await failPaymentOnNoProviderRef({
+        paymentId: payment.id,
+        providerMsg: stkRes.providerMsg,
+      });
+      return res.status(502).json(payload);
+    }
 
     return res.status(201).json({
       message: "STK push initiated",
@@ -317,8 +373,11 @@ export const initMpesaPayment = async (req: Request, res: Response) => {
       providerMsg: stkRes.providerMsg,
     });
   } catch (err: any) {
-    // Keep client response clean; log the noisy bits in server console
-    console.error("[initMpesaPayment] failed:", err?.message || err, err?.response?.data || "");
+    console.error(
+      "[initMpesaPayment] failed:",
+      err?.message || err,
+      err?.response?.data || ""
+    );
     return res.status(500).json({
       message: "Failed to start payment",
       error: err?.message || "Unknown error",
@@ -331,22 +390,49 @@ export const initMpesaPayment = async (req: Request, res: Response) => {
 export const mpesaCallback = async (req: Request, res: Response) => {
   try {
     const parsed = parseMpesaCallback(req.body || {});
-    if (!parsed.providerRef) return res.status(400).json({ message: "providerRef required" });
+
+    // Always ACK Safaricom quickly to avoid retries storms
+    if (!parsed.providerRef) {
+      console.warn("[mpesaCallback] Missing providerRef:", req.body);
+      return res.json({ ResultCode: 0, ResultDesc: "OK" });
+    }
 
     const payment = await prisma.payment.findFirst({
       where: { provider: PaymentProvider.MPESA, externalRef: parsed.providerRef },
       include: { plan: true },
     });
 
-    if (!payment) return res.status(404).json({ message: "Payment not found" });
+    // Even if we can’t match, ACK to stop repeated retries
+    if (!payment) {
+      console.warn("[mpesaCallback] Payment not found for providerRef:", parsed.providerRef);
+      console.warn("[mpesaCallback] Parsed:", {
+        providerRef: parsed.providerRef,
+        resultCode: parsed.resultCode,
+        resultDesc: parsed.resultDesc,
+        receipt: parsed.receipt,
+      });
+      return res.json({ ResultCode: 0, ResultDesc: "OK" });
+    }
 
-    // Terminal already? idempotent response
+    // Terminal already? idempotent ACK
     if (payment.status === PaymentStatus.SUCCESS || payment.status === PaymentStatus.FAILED) {
-      return res.json({ message: "Already processed", status: payment.status });
+      return res.json({ ResultCode: 0, ResultDesc: "OK" });
     }
 
     const isSuccess = parsed.resultCode === "0";
     const nextStatus = isSuccess ? PaymentStatus.SUCCESS : PaymentStatus.FAILED;
+
+    // Log before update for troubleshooting
+    console.log("[mpesaCallback] Processing:", {
+      paymentId: payment.id,
+      userId: payment.userId,
+      providerRef: parsed.providerRef,
+      resultCode: parsed.resultCode,
+      resultDesc: parsed.resultDesc,
+      receipt: parsed.receipt,
+      amount: parsed.amount,
+      phone: parsed.phone,
+    });
 
     const updated = await prisma.payment.update({
       where: { id: payment.id },
@@ -356,20 +442,23 @@ export const mpesaCallback = async (req: Request, res: Response) => {
       },
     });
 
+    // Log after update
+    console.log("[mpesaCallback] Updated payment:", {
+      paymentId: updated.id,
+      status: updated.status,
+      transactionCode: updated.transactionCode ?? null,
+    });
+
     if (nextStatus === PaymentStatus.SUCCESS) {
       await activateSubscriptionFromPayment(updated.id);
+      console.log("[mpesaCallback] Subscription activated from payment:", updated.id);
     }
 
-    return res.json({
-      message: "Callback processed",
-      status: nextStatus,
-      desc: parsed.resultDesc ?? undefined,
-      providerRef: parsed.providerRef,
-      transactionCode: parsed.transactionCode ?? undefined,
-    });
+    // ACK success regardless; provider expects ResultCode 0 for successful receipt
+    return res.json({ ResultCode: 0, ResultDesc: "OK" });
   } catch (err) {
-    // Respond quickly so provider doesn’t keep retrying
     console.error("[mpesaCallback] error:", err);
+    // Still ACK to avoid retries storm
     return res.json({ ResultCode: 0, ResultDesc: "OK" });
   }
 };
@@ -418,8 +507,8 @@ export const listAllPayments = async (req: Request, res: Response) => {
       typeof provider === "string" && provider.trim()
         ? provider.trim()
         : typeof method === "string"
-          ? method.trim()
-          : "";
+        ? method.trim()
+        : "";
 
     if (providerRaw && Object.values(PaymentProvider).includes(providerRaw as PaymentProvider)) {
       where.provider = providerRaw;

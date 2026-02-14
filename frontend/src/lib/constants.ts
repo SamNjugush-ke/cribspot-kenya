@@ -12,13 +12,15 @@ export const AMENITIES = [
   "Own Compound",
   "CCTV",
   "24/7 Security",
+  "Chandalier",
+  "Wi-Fi",
 ];
 
 export const BEDROOM_OPTIONS = ["Any", "1", "2", "3", "4", "5+"];
 
 export const PROPERTY_TYPES = [
   "Apartment", "Studio", "Bedsitter", "Hostel", "Townhouse",
-  "Office", "Shop"
+  "Office", "Shop", "Mansion", "Bungalow"
 ];
 
 export const KENYA_COUNTIES = [

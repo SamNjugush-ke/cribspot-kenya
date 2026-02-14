@@ -29,7 +29,7 @@ export function Footer() {
           <div className="flex items-center gap-3">
             {/* 512x512 source; show it clearly */}
             <img
-              src="/Main_Logo.svg"
+              src="/main_logo.svg"
               alt="CribSpot Kenya"
               width={64}
               height={64}
