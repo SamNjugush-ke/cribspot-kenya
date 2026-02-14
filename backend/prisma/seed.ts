@@ -1,8 +1,9 @@
-import { PrismaClient, Prisma } from "@prisma/client";
+import { PrismaClient, Prisma, Role } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
-// ---- Helpers ----
+/** ---------------- Helpers ---------------- */
 function slugify(input: string) {
   return (input || "")
     .toLowerCase()
@@ -17,6 +18,7 @@ function excerptFromHtml(html: string, max = 160) {
   const text = html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
   return text.length > max ? text.slice(0, max - 1) + "…" : text;
 }
+
 function readingTimeFromHtml(html: string) {
   const words = html
     .replace(/<[^>]*>/g, " ")
@@ -25,11 +27,44 @@ function readingTimeFromHtml(html: string) {
   return Math.max(1, Math.round(words / 200));
 }
 
-// Authors you gave me
-const EDNA = "cmf2g29ld0005u90wltb5cmz0";
-const ALICE = "cmf2g29l10001u90wy7b5pk7s";
+async function upsertUser(opts: {
+  email: string;
+  name: string;
+  role: Role;
+  passwordPlain: string;
+}) {
+  const passwordHash = await bcrypt.hash(opts.passwordPlain, 10);
 
-// ---- Seed data ----
+  // Upsert by unique email. Always set role + name, and set password only if blank.
+  // (If you want to always overwrite password, move passwordHash into update below.)
+  const existing = await prisma.user.findUnique({ where: { email: opts.email } });
+
+  if (!existing) {
+    return prisma.user.create({
+      data: {
+        email: opts.email,
+        name: opts.name,
+        role: opts.role,
+        password: passwordHash,
+      },
+      select: { id: true, email: true, role: true, name: true },
+    });
+  }
+
+  return prisma.user.update({
+    where: { email: opts.email },
+    data: {
+      name: opts.name,
+      role: opts.role,
+      ...(existing.password ? {} : { password: passwordHash }),
+    },
+    select: { id: true, email: true, role: true, name: true },
+  });
+}
+
+/** ---------------- Seed data ---------------- */
+const SEED_PASSWORD = process.env.SEED_PASSWORD || "Cribspot@123";
+
 const CATEGORY_NAMES = [
   "Renting Tips",
   "Market Trends",
@@ -58,11 +93,11 @@ type BlogSeed = {
   title: string;
   baseSlug: string;
   cover: string;
-  paragraphs: string[];          // HTML paragraphs
-  categories: string[];          // by category name
-  tags: string[];                // by tag name
+  paragraphs: string[];
+  categories: string[];
+  tags: string[];
   author: "EDNA" | "ALICE";
-  ageDays?: number;              // publish date offset
+  ageDays?: number;
 };
 
 const BLOGS: BlogSeed[] = [
@@ -180,8 +215,9 @@ const BLOGS: BlogSeed[] = [
   },
 ];
 
+/** ---------------- Upserts ---------------- */
 async function upsertCategories() {
-  const map = new Map<string, string>(); // name -> id
+  const map = new Map<string, string>();
   for (const name of CATEGORY_NAMES) {
     const slug = slugify(name);
     const cat = await prisma.category.upsert({
@@ -196,9 +232,10 @@ async function upsertCategories() {
 }
 
 async function upsertTags() {
-  const map = new Map<string, string>(); // name -> id
+  const map = new Map<string, string>();
   for (const name of TAG_NAMES) {
     const slug = slugify(name);
+    // Tag model has unique on name and slug; upsert on slug is safest
     const tag = await prisma.tag.upsert({
       where: { slug },
       update: { name },
@@ -210,20 +247,60 @@ async function upsertTags() {
   return map;
 }
 
-async function seedBlogs(catMap: Map<string, string>, tagMap: Map<string, string>) {
+async function seedUsers() {
+  console.log("👤 Seeding users… (password:", SEED_PASSWORD, ")");
+
+  const superAdmin = await upsertUser({
+    email: "superadmin@cribspot.co.ke",
+    name: "Raphael Muriuki",
+    role: Role.SUPER_ADMIN,
+    passwordPlain: SEED_PASSWORD,
+  });
+
+  const lister = await upsertUser({
+    email: "generallister@cribspot.co.ke",
+    name: "Larry Lister",
+    role: Role.LISTER,
+    passwordPlain: SEED_PASSWORD,
+  });
+
+  const edna = await upsertUser({
+    email: "editor@cribspot.co.ke",
+    name: "Edna Editor",
+    role: Role.EDITOR,
+    passwordPlain: SEED_PASSWORD,
+  });
+
+  const alice = await upsertUser({
+    email: "alice@cribspot.co.ke",
+    name: "Alice Editor",
+    role: Role.EDITOR,
+    passwordPlain: SEED_PASSWORD,
+  });
+
+  return { superAdmin, lister, edna, alice };
+}
+
+async function seedBlogs(
+  catMap: Map<string, string>,
+  tagMap: Map<string, string>,
+  authorIds: { EDNA: string; ALICE: string }
+) {
+  console.log("📝 Seeding blogs…");
+
   for (let i = 0; i < BLOGS.length; i++) {
     const b = BLOGS[i];
     const html = b.paragraphs.join("\n");
     const excerpt = excerptFromHtml(html, 180);
     const reading = readingTimeFromHtml(html);
 
-    const base = slugify(b.baseSlug || b.title);
-    const slug = `${base}-${(i + 1).toString(36)}`; // ensure uniqueness for demo
+    // IMPORTANT: stable slug so seed is idempotent
+    // (no random suffix)
+    const slug = slugify(b.baseSlug || b.title);
 
-    const authorId = b.author === "EDNA" ? EDNA : ALICE;
+    const authorId = b.author === "EDNA" ? authorIds.EDNA : authorIds.ALICE;
     const publishedAt = new Date(Date.now() - (b.ageDays || 0) * 86400000);
 
-    // create blog
     const blog = await prisma.blog.upsert({
       where: { slug },
       update: {
@@ -236,7 +313,7 @@ async function seedBlogs(catMap: Map<string, string>, tagMap: Map<string, string
         published: true,
         publishedAt,
         authorId,
-        contentJson: Prisma.JsonNull, // store HTML only for seed
+        contentJson: Prisma.JsonNull, // HTML only for seed
         contentFormat: "TIPTAP",
       },
       create: {
@@ -256,7 +333,7 @@ async function seedBlogs(catMap: Map<string, string>, tagMap: Map<string, string
       select: { id: true, slug: true },
     });
 
-    // connect categories
+    // categories
     const catIds = (b.categories || [])
       .map((name) => catMap.get(name))
       .filter(Boolean) as string[];
@@ -269,7 +346,7 @@ async function seedBlogs(catMap: Map<string, string>, tagMap: Map<string, string
       });
     }
 
-    // connect tags
+    // tags
     const tagIds = (b.tags || [])
       .map((name) => tagMap.get(name))
       .filter(Boolean) as string[];
@@ -284,15 +361,24 @@ async function seedBlogs(catMap: Map<string, string>, tagMap: Map<string, string
   }
 }
 
+/** ---------------- Main ---------------- */
 async function main() {
-  console.log("🌱 Seeding categories & tags…");
+  console.log("🌱 Starting seed…");
+
+  const users = await seedUsers();
+
+  console.log("🏷️  Seeding categories & tags…");
   const catMap = await upsertCategories();
   const tagMap = await upsertTags();
 
-  console.log("🌱 Seeding blogs…");
-  await seedBlogs(catMap, tagMap);
+  await seedBlogs(catMap, tagMap, { EDNA: users.edna.id, ALICE: users.alice.id });
 
   console.log("✅ Seed complete.");
+  console.log("Logins:");
+  console.log(" - SUPER_ADMIN: superadmin@cribspot.co.ke /", SEED_PASSWORD);
+  console.log(" - LISTER:      generallister@cribspot.co.ke /", SEED_PASSWORD);
+  console.log(" - EDITOR:      editor@cribspot.co.ke /", SEED_PASSWORD);
+  console.log(" - EDITOR:      alice@cribspot.co.ke /", SEED_PASSWORD);
 }
 
 main()

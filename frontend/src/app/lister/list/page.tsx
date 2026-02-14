@@ -63,19 +63,19 @@ type AdminMap = Record<string, { constituencies: Record<string, { wards: string[
 const ADMIN: AdminMap = KENYA_ADMIN as unknown as AdminMap;
 
 async function createDraft(payload: DraftPayload) {
-  const res = await apiPost<Prop>("/api/properties", payload);
+  const res = await apiPost<Prop>("/properties", payload);
   if (!res.ok || !res.data) throw new Error((res.data as any)?.message || `Draft create failed (${res.status})`);
   return res.data;
 }
 
 async function updateDraft(id: string, payload: DraftPayload) {
-  const res = await apiPatch<Prop>(`/api/properties/${id}`, payload);
+  const res = await apiPatch<Prop>(`/properties/${id}`, payload);
   if (!res.ok || !res.data) throw new Error((res.data as any)?.message || `Draft save failed (${res.status})`);
   return res.data;
 }
 
 async function publishListing(id: string) {
-  const res = await apiPatch<Prop>(`/api/properties/${id}/publish`, {});
+  const res = await apiPatch<Prop>(`/properties/${id}/publish`, {});
   if (!res.ok || !res.data) throw new Error((res.data as any)?.message || `Publish failed (${res.status})`);
   return res.data;
 }
@@ -121,7 +121,7 @@ function ListingFlowInner() {
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const loadDrafts = useCallback(async () => {
-    const res = await apiGet<{ items: Prop[] }>("/api/properties/mine?status=DRAFT");
+    const res = await apiGet<{ items: Prop[] }>("/properties/mine?status=DRAFT");
     if (res.ok && res.data?.items) setDrafts(res.data.items);
   }, []);
   useEffect(() => {
@@ -131,7 +131,7 @@ function ListingFlowInner() {
   useEffect(() => {
     if (!existingId) return;
     (async () => {
-      const res = await apiGet<Prop>(`/api/properties/${existingId}`);
+      const res = await apiGet<Prop>(`/properties/${existingId}`);
       if (!res.ok || !res.data) return;
 
       const p = res.data;
@@ -281,7 +281,7 @@ function ListingFlowInner() {
   const discardDraft = async (id: string) => {
     if (!confirm("Discard this draft?")) return;
 
-    const res = await apiDelete(`/api/properties/${id}`);
+    const res = await apiDelete(`/properties/${id}`);
     if (res.ok) {
       if (property?.id === id) {
         setProperty(null);
