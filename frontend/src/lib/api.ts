@@ -1,11 +1,18 @@
 // frontend/src/lib/api.ts
 "use client";
 
-export const API_BASE =
-  (process.env.NEXT_PUBLIC_API_BASE ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    "http://localhost:4000"
-  ).replace(/\/+$/, ""); // trim trailing slash
+/**
+ * Base host (no trailing slash), then enforce a single "/api" suffix.
+ * This makes calls resilient whether callers use "/properties" OR "/api/properties".
+ */
+export const RAW_API_BASE = (
+  process.env.NEXT_PUBLIC_API_BASE ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:4000"
+).replace(/\/+$/, ""); // trim trailing slash(es)
+
+// Always end with exactly ".../api"
+export const API_BASE = RAW_API_BASE.replace(/\/api\/?$/, "") + "/api";
 
 export type ApiResult<T> = {
   ok: boolean;
@@ -21,18 +28,25 @@ function isFormData(body: any): body is FormData {
 }
 
 function safeJoin(base: string, path: string) {
-  const b = base.replace(/\/+$/, "");
+  const b = (base || "").replace(/\/+$/, "");
   const p = (path || "").startsWith("/") ? path : `/${path}`;
   return `${b}${p}`;
 }
 
 /**
- * Avoid accidental /api/api duplication if some callers pass base with /api
- * and others pass paths starting with /api.
+ * Normalize accidental:
+ *  - "/api/api" duplication
+ *  - "/api/api/..." anywhere
+ *  - "/api/api?..." cases
  */
 function normalizeUrl(base: string, path: string) {
-  const url = safeJoin(base, path);
-  return url.replace(/\/api\/api(\/|$)/, "/api$1");
+  let url = safeJoin(base, path);
+
+  // collapse repeated /api segments
+  url = url.replace(/\/api\/api(\/|\?)/g, "/api$1");
+  url = url.replace(/\/api\/api$/g, "/api");
+
+  return url;
 }
 
 function withAuthHeaders(init: RequestInit = {}): RequestInit {
@@ -83,12 +97,15 @@ export async function apiFetch<T = any>(
       status: res.status,
       json: (json as T) ?? null,
       data: (json as T) ?? null,
-      error: res.ok ? undefined : (json?.message || `Request failed (${res.status})`),
+      error: res.ok
+        ? undefined
+        : json?.message || `Request failed (${res.status})`,
     };
   } catch (e: any) {
     // Network/CORS/DNS/connection refused etc.
     const msg = e?.message || "Failed to fetch";
     console.error("[apiFetch] Network error:", msg, {
+      RAW_API_BASE,
       API_BASE,
       path,
     });
@@ -109,7 +126,11 @@ export const apiGet = <T = any>(
   init?: RequestInit & { params?: Record<string, string | number> }
 ) => apiFetch<T>(path, { ...init, method: "GET" });
 
-export const apiPost = <T = any>(path: string, body?: any, init?: RequestInit) =>
+export const apiPost = <T = any>(
+  path: string,
+  body?: any,
+  init?: RequestInit
+) =>
   apiFetch<T>(path, {
     ...init,
     method: "POST",
@@ -120,7 +141,11 @@ export const apiPost = <T = any>(path: string, body?: any, init?: RequestInit) =
       : undefined,
   });
 
-export const apiPut = <T = any>(path: string, body?: any, init?: RequestInit) =>
+export const apiPut = <T = any>(
+  path: string,
+  body?: any,
+  init?: RequestInit
+) =>
   apiFetch<T>(path, {
     ...init,
     method: "PUT",
@@ -131,7 +156,11 @@ export const apiPut = <T = any>(path: string, body?: any, init?: RequestInit) =>
       : undefined,
   });
 
-export const apiPatch = <T = any>(path: string, body?: any, init?: RequestInit) =>
+export const apiPatch = <T = any>(
+  path: string,
+  body?: any,
+  init?: RequestInit
+) =>
   apiFetch<T>(path, {
     ...init,
     method: "PATCH",
@@ -142,7 +171,11 @@ export const apiPatch = <T = any>(path: string, body?: any, init?: RequestInit) 
       : undefined,
   });
 
-export const apiDelete = <T = any>(path: string, body?: any, init?: RequestInit) =>
+export const apiDelete = <T = any>(
+  path: string,
+  body?: any,
+  init?: RequestInit
+) =>
   apiFetch<T>(path, {
     ...init,
     method: "DELETE",

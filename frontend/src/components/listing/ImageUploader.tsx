@@ -1,8 +1,7 @@
-//frontend/src/components/listing/ImageUploader.tsx code:
 'use client';
 
 import { useRef, useState } from 'react';
-import api, { apiDelete } from '@/lib/api';
+import api, { API_BASE, apiDelete } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 
 type ImageItem = { id?: string; url: string };
@@ -34,24 +33,25 @@ export default function ImageUploader({ propertyId, images, onChange }: Props) {
     try {
       const uploaded: ImageItem[] = [];
 
+      // API_BASE already ends with /api
+      const uploadUrl = `${API_BASE}/properties/${propertyId}/images`;
+
       // upload sequentially (simple + safe)
       for (const f of files) {
         const fd = new FormData();
         fd.append('file', f);
-        // POST /api/properties/:id/images
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000'}/api/properties/${propertyId}/images`,
-          {
-            method: 'POST',
-            headers: {
-              // auth header handled in api.ts normally, but here we send multipart so we fetch directly
-              ...(typeof window !== 'undefined' && localStorage.getItem('rk_token')
-                ? { Authorization: `Bearer ${localStorage.getItem('rk_token')}` }
-                : {}),
-            },
-            body: fd,
-          }
-        );
+
+        // POST /properties/:id/images (API_BASE includes /api)
+        const res = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: {
+            // auth header handled in api.ts normally, but here we send multipart so we fetch directly
+            ...(typeof window !== 'undefined' && localStorage.getItem('rk_token')
+              ? { Authorization: `Bearer ${localStorage.getItem('rk_token')}` }
+              : {}),
+          },
+          body: fd,
+        });
 
         if (!res.ok) {
           const j = await res.json().catch(() => ({}));
@@ -105,9 +105,15 @@ export default function ImageUploader({ propertyId, images, onChange }: Props) {
           multiple
           onChange={handlePickFiles}
           disabled={busy}
-          className='hidden'
+          className="hidden"
         />
-        <Button className="bg-brand-blue text-white hover:bg-black" type="button" variant="secondary" onClick={() => inputRef.current?.click()} disabled={busy}>
+        <Button
+          className="bg-brand-blue text-white hover:bg-black"
+          type="button"
+          variant="secondary"
+          onClick={() => inputRef.current?.click()}
+          disabled={busy}
+        >
           {busy ? 'Uploading…' : 'Add Images'}
         </Button>
       </div>

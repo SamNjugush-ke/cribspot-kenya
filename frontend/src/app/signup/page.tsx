@@ -1,32 +1,56 @@
 'use client';
 
-import { useState } from 'react';
-import api, { apiGet } from '@/lib/api';
+import { useMemo, useState } from 'react';
+import api from '@/lib/api';
 import { useRouter } from 'next/navigation';
 
 type Role = 'LISTER' | 'RENTER' | 'AGENT';
 
+function normalizeLocalPhone(local: string) {
+  const digits = local.replace(/[^\d]/g, '');
+  // must be 9 digits starting with 7 or 1 (e.g. 7XXXXXXXX or 1XXXXXXXX)
+  if (!/^[17]\d{8}$/.test(digits)) return null;
+  return digits;
+}
+
 export default function SignupPage() {
+  const router = useRouter();
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [role, setRole] = useState<Role>('LISTER');
 
+  // ✅ phone for all roles
+  const [countryCode, setCountryCode] = useState('254'); // editable prefix
+  const [localPhone, setLocalPhone] = useState('7'); // 7XXXXXXXX or 1XXXXXXXX
+
   // Agent extra fields
   const [location, setLocation] = useState('');
   const [dailyFee, setDailyFee] = useState('');
-  const [phone, setPhone] = useState('');
   const [whatsapp, setWhatsapp] = useState<'yes' | 'no'>('no');
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
+
+  const normalizedFullPhone = useMemo(() => {
+    const cc = String(countryCode || '').replace(/[^\d]/g, '');
+    const lp = normalizeLocalPhone(localPhone);
+    if (!cc || !lp) return null;
+    return `${cc}${lp}`; // digits only
+  }, [countryCode, localPhone]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (password !== confirm) {
       setError('Passwords do not match');
+      return;
+    }
+
+    if (!normalizedFullPhone) {
+      setError('Enter phone as 7XXXXXXXX or 1XXXXXXXX.');
       return;
     }
 
@@ -34,48 +58,32 @@ export default function SignupPage() {
     setError(null);
 
     try {
-      const payload: any = { name, email, password, role, phone };
+      const payload: any = {
+        name,
+        email,
+        password,
+        role,
+        phone: normalizedFullPhone, // ✅ digits-only E.164
+      };
 
       if (role === 'AGENT') {
         payload.agentProfile = {
           location,
           dailyFee: dailyFee ? Number(dailyFee) : null,
-          phone,
+          phone: normalizedFullPhone,
           whatsapp: whatsapp === 'yes',
         };
       }
 
       const res = await api.post<any>('/api/auth/signup', payload);
 
-      // Some backends return {token, user}; others only return {user} then you login.
-      const token = res.data?.token || res.data?.data?.token;
-      const user = res.data?.user || res.data?.data?.user;
-
-      if (token) {
-        localStorage.setItem('rk_token', token);
-        if (user?.id) localStorage.setItem('rk_user', JSON.stringify(user));
-        else {
-          const me = await apiGet<{ user: any }>('/api/auth/me');
-          if (me.ok && me.data?.user) localStorage.setItem('rk_user', JSON.stringify(me.data.user));
-        }
-        localStorage.setItem('rk_last_activity', String(Date.now()));
-      } else {
-        // No token returned -> immediately login using same credentials
-        const login = await api.post<{ token: string; user: any }>('/api/auth/login', { email, password });
-        if (!login.ok || !login.data?.token) throw new Error((login.data as any)?.message || 'Signup/login failed');
-        localStorage.setItem('rk_token', login.data.token);
-        if (login.data.user) localStorage.setItem('rk_user', JSON.stringify(login.data.user));
-        localStorage.setItem('rk_last_activity', String(Date.now()));
+      if (!res.ok) {
+        setError((res.data as any)?.message || 'Failed to create account');
+        return;
       }
 
-      if (role === 'AGENT') {
-        alert('Your agent account has been created and is pending approval by admin.');
-        router.replace('/');
-      } else if (role === 'LISTER') {
-        router.replace('/dashboard/lister');
-      } else {
-        router.replace('/dashboard/renter');
-      }
+      // ✅ Stop auto-login. Redirect to login with success message.
+      router.replace('/login?registered=1');
     } catch (e: any) {
       setError(e?.response?.data?.message || e?.message || 'Failed');
     } finally {
@@ -95,6 +103,7 @@ export default function SignupPage() {
           onChange={(e) => setName(e.target.value)}
           required
         />
+
         <input
           className="w-full border rounded-lg px-3 py-2"
           type="email"
@@ -103,6 +112,30 @@ export default function SignupPage() {
           onChange={(e) => setEmail(e.target.value)}
           required
         />
+
+        {/* ✅ Phone for all roles */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium">Phone</label>
+          <div className="flex gap-2">
+            <input
+              className="w-[110px] border rounded-lg px-3 py-2 bg-gray-50"
+              value={`+${countryCode}`}
+              onChange={(e) => setCountryCode(e.target.value.replace(/[^\d]/g, ''))}
+              placeholder="+254"
+              inputMode="numeric"
+            />
+            <input
+              className="flex-1 border rounded-lg px-3 py-2"
+              placeholder="7XXXXXXXX"
+              value={localPhone}
+              onChange={(e) => setLocalPhone(e.target.value)}
+              inputMode="numeric"
+              required
+            />
+          </div>
+          <p className="text-xs text-gray-500">Format: +254 7XXXXXXXX or +254 1XXXXXXXX</p>
+        </div>
+
         <input
           className="w-full border rounded-lg px-3 py-2"
           type="password"
@@ -111,6 +144,7 @@ export default function SignupPage() {
           onChange={(e) => setPassword(e.target.value)}
           required
         />
+
         <input
           className="w-full border rounded-lg px-3 py-2"
           type="password"
@@ -127,6 +161,8 @@ export default function SignupPage() {
         >
           <option value="LISTER">Lister</option>
           <option value="RENTER">Renter</option>
+          {/* If you want Agent signups visible, uncomment: */}
+          {/* <option value="AGENT">Agent</option> */}
         </select>
 
         {role === 'AGENT' && (
@@ -143,12 +179,7 @@ export default function SignupPage() {
               placeholder="Daily fee (KES)"
               value={dailyFee}
               onChange={(e) => setDailyFee(e.target.value)}
-            />
-            <input
-              className="w-full border rounded-lg px-3 py-2"
-              placeholder="Phone"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              inputMode="numeric"
             />
             <select
               className="w-full border rounded-lg px-3 py-2"

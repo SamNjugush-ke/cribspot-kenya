@@ -13,7 +13,7 @@ export const getEffectivePermissionsForUser = async (req: Request, res: Response
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, name: true, email: true, role: true, isBanned: true },
+      select: { id: true, name: true, email: true, phone: true, role: true, isBanned: true },
     });
     if (!user) return res.status(404).json({ error: "User not found" });
 
@@ -57,7 +57,7 @@ export const searchUsers = async (req: Request, res: Response) => {
     where,
     take,
     orderBy: { createdAt: "desc" },
-    select: { id: true, name: true, email: true, role: true },
+    select: { id: true, name: true, email: true, phone: true, role: true },
   });
 
   res.json({ items: users });

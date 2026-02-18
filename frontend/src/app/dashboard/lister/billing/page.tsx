@@ -6,7 +6,14 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import CheckoutDialog from '@/components/billing/CheckoutDialog';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
 import { AlertTriangle, Clock, Sparkles } from 'lucide-react';
 
@@ -53,15 +60,12 @@ type ActiveSnapshot = {
     totalFeatured: number;
     expiresAtSoonest?: string | null;
   };
-  // some versions might include different keys; we keep it loose
   [k: string]: any;
 };
 
 function unwrapActiveSnapshot(json: any): ActiveSnapshot | null {
   if (!json) return null;
-  // controller returns either { message, active } or active
   if (json.active) return json.active as ActiveSnapshot;
-  // if it already looks like snapshot
   if (json.aggregate || json.subscriptions) return json as ActiveSnapshot;
   return null;
 }
@@ -103,9 +107,10 @@ export default function BillingPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+  const [targetSubscriptionId, setTargetSubscriptionId] = useState<string | null>(null);
 
   const [extendPickerOpen, setExtendPickerOpen] = useState(false);
-  const [extendPlanId, setExtendPlanId] = useState<string | null>(null);
+  const [extendSubId, setExtendSubId] = useState<string | null>(null);
 
   const hasPending = useMemo(() => payments.some((p) => p.status === 'PENDING'), [payments]);
 
@@ -125,6 +130,7 @@ export default function BillingPage() {
     setActiveSnap(snap);
 
     const subsRaw = Array.isArray(snap?.subscriptions) ? snap!.subscriptions : [];
+
     // keep only active-ish (either isActive or not expired)
     const now = Date.now();
     const subs = subsRaw.filter((s: any) => {
@@ -158,29 +164,28 @@ export default function BillingPage() {
   const dLeft = daysLeft(soonestExpiry);
   const expiringSoon = typeof dLeft === 'number' && dLeft <= 7;
 
-  function openPayForPlan(pl: Plan) {
+  function openPayForPlan(pl: Plan, subId?: string | null) {
     setSelectedPlan(pl);
+    setTargetSubscriptionId(subId ?? null); // null => buy new; non-null => extend that subscription
     setDialogOpen(true);
   }
 
   function openExtendPicker() {
-    // default to soonest expiry subscription’s plan
     const first = activeSubs[0];
-    setExtendPlanId(first?.planId ?? first?.plan?.id ?? null);
+    setExtendSubId(first?.id ?? null);
     setExtendPickerOpen(true);
   }
 
   function confirmExtend() {
-    const pid = extendPlanId;
-    if (!pid) return;
+    if (!extendSubId) return;
 
-    const pl =
-      plans.find((p) => p.id === pid) ||
-      activeSubs.find((s) => s.planId === pid)?.plan ||
-      null;
+    const sub = activeSubs.find((s) => s.id === extendSubId);
+    if (!sub) return;
+
+    const pl = plans.find((p) => p.id === sub.planId) || sub.plan || null;
 
     setExtendPickerOpen(false);
-    if (pl) openPayForPlan(pl);
+    if (pl) openPayForPlan(pl, sub.id);
   }
 
   return (
@@ -189,9 +194,7 @@ export default function BillingPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Billing & Subscription</h1>
-          <p className="text-sm text-gray-600">
-            Manage packages, renewals, and usage quotas.
-          </p>
+          <p className="text-sm text-gray-600">Manage packages, renewals, and usage quotas.</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -199,17 +202,16 @@ export default function BillingPage() {
             <Button
               className="bg-[#004AAD] hover:bg-[#00398a]"
               onClick={() => {
-                // just scroll to plans grid
-                document.getElementById('plans-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                document.getElementById('plans-grid')?.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'start',
+                });
               }}
             >
               Get a plan
             </Button>
           ) : (
-            <Button
-              className="bg-[#004AAD] hover:bg-[#00398a]"
-              onClick={openExtendPicker}
-            >
+            <Button className="bg-[#004AAD] hover:bg-[#00398a]" onClick={openExtendPicker}>
               Extend
             </Button>
           )}
@@ -249,7 +251,12 @@ export default function BillingPage() {
               <p className="text-gray-700">No active plan.</p>
               <Button
                 className="bg-[#004AAD] hover:bg-[#00398a]"
-                onClick={() => document.getElementById('plans-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                onClick={() =>
+                  document.getElementById('plans-grid')?.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'start',
+                  })
+                }
               >
                 View packages
               </Button>
@@ -267,9 +274,7 @@ export default function BillingPage() {
 
               <div className="rounded-xl border bg-white p-4">
                 <div className="text-sm text-gray-600">Listings remaining</div>
-                <div className="mt-1 text-2xl font-semibold">
-                  {activeSnap?.aggregate?.remainingListings ?? '—'}
-                </div>
+                <div className="mt-1 text-2xl font-semibold">{activeSnap?.aggregate?.remainingListings ?? '—'}</div>
                 <div className="mt-2 text-xs text-gray-500">
                   Total purchased: <b>{activeSnap?.aggregate?.totalListings ?? '—'}</b>
                 </div>
@@ -277,9 +282,7 @@ export default function BillingPage() {
 
               <div className="rounded-xl border bg-white p-4">
                 <div className="text-sm text-gray-600">Featured remaining</div>
-                <div className="mt-1 text-2xl font-semibold">
-                  {activeSnap?.aggregate?.remainingFeatured ?? '—'}
-                </div>
+                <div className="mt-1 text-2xl font-semibold">{activeSnap?.aggregate?.remainingFeatured ?? '—'}</div>
                 <div className="mt-2 text-xs text-gray-500">
                   Total purchased: <b>{activeSnap?.aggregate?.totalFeatured ?? '—'}</b>
                 </div>
@@ -324,6 +327,7 @@ export default function BillingPage() {
                       </Badge>
                     </CardTitle>
                   </CardHeader>
+
                   <CardContent className="space-y-3">
                     <div className="text-sm text-gray-700">
                       Expires: <b>{safeDateStr(s.expiresAt)}</b>
@@ -347,7 +351,9 @@ export default function BillingPage() {
                         <span className="text-gray-700">Featured</span>
                         <span className="text-gray-700">
                           Remaining: <b>{s.remainingFeatured}</b>{' '}
-                          {plan?.featuredListings ? <span className="text-xs text-gray-500">/ {plan.featuredListings}</span> : null}
+                          {plan?.featuredListings ? (
+                            <span className="text-xs text-gray-500">/ {plan.featuredListings}</span>
+                          ) : null}
                         </span>
                       </div>
                       <ProgressBar value={pctF} />
@@ -357,17 +363,14 @@ export default function BillingPage() {
                       <Button
                         className="bg-[#004AAD] hover:bg-[#00398a]"
                         onClick={() => {
-                          // choose this plan to extend
                           const pl = plans.find((p) => p.id === s.planId) || s.plan || null;
-                          if (pl) openPayForPlan(pl);
+                          if (pl) openPayForPlan(pl, s.id); // ✅ extend this exact subscription
                         }}
                       >
                         Extend this package
                       </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => (window.location.href = '/dashboard/lister/list')}
-                      >
+
+                      <Button variant="outline" onClick={() => (window.location.href = '/dashboard/lister/list')}>
                         List property
                       </Button>
                     </div>
@@ -383,32 +386,50 @@ export default function BillingPage() {
       <div id="plans-grid" className="space-y-3">
         <h2 className="text-lg font-semibold">Packages</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {plans.map((pl) => (
-            <Card key={pl.id} className="flex flex-col">
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  <span>{pl.name}</span>
-                  {!pl.isActive ? <Badge className="bg-gray-100 text-gray-700">Unavailable</Badge> : null}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex-1 flex flex-col gap-2">
-                <div className="text-3xl font-bold">KES {pl.price}</div>
-                <div className="text-sm text-gray-700">Duration: {pl.durationInDays} days</div>
-                <div className="text-sm text-gray-700">Listings: {pl.totalListings}</div>
-                <div className="text-sm text-gray-700">Featured: {pl.featuredListings}</div>
+          {plans.map((pl) => {
+            const alreadyPurchased = activeSubs.some((s) => s.planId === pl.id);
+            const disabled = !pl.isActive || alreadyPurchased;
 
-                <div className="mt-auto pt-2">
-                  <Button
-                    className="bg-[#004AAD] hover:bg-[#00398a] w-full"
-                    disabled={!pl.isActive}
-                    onClick={() => openPayForPlan(pl)}
-                  >
-                    Buy this package
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+            return (
+              <Card key={pl.id} className="flex flex-col">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span>{pl.name}</span>
+                    {!pl.isActive ? <Badge className="bg-gray-100 text-gray-700">Unavailable</Badge> : null}
+                  </CardTitle>
+                </CardHeader>
+
+                <CardContent className="flex-1 flex flex-col gap-2">
+                  <div className="text-3xl font-bold">KES {pl.price}</div>
+                  <div className="text-sm text-gray-700">Duration: {pl.durationInDays} days</div>
+                  <div className="text-sm text-gray-700">Listings: {pl.totalListings}</div>
+                  <div className="text-sm text-gray-700">Featured: {pl.featuredListings}</div>
+
+                  <div className="mt-auto pt-2">
+                    {alreadyPurchased ? (
+                      <Button className="w-full" variant="outline" disabled>
+                        Already purchased (extend above)
+                      </Button>
+                    ) : (
+                      <Button
+                        className="bg-[#004AAD] hover:bg-[#00398a] w-full"
+                        disabled={!pl.isActive}
+                        onClick={() => openPayForPlan(pl, null)} // ✅ buy fresh (no targetSubscriptionId)
+                      >
+                        Buy this package
+                      </Button>
+                    )}
+                  </div>
+
+                  {alreadyPurchased ? (
+                    <p className="text-xs text-gray-500">
+                      You already have this plan active. Use <b>Extend this package</b> in “Running packages”.
+                    </p>
+                  ) : null}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       </div>
 
@@ -419,6 +440,7 @@ export default function BillingPage() {
         </CardHeader>
         <CardContent className="space-y-2">
           {payments.length === 0 && <p className="text-gray-700">No payments yet.</p>}
+
           {payments.map((p) => (
             <div key={p.id} className="flex items-center justify-between border rounded-md px-3 py-2">
               <div>
@@ -428,6 +450,7 @@ export default function BillingPage() {
                   {p.transactionCode ? ` · Receipt: ${p.transactionCode}` : ''}
                 </div>
               </div>
+
               <div className="flex items-center gap-3">
                 <span>KES {p.amount}</span>
                 <Badge
@@ -455,7 +478,7 @@ export default function BillingPage() {
           <DialogHeader>
             <DialogTitle>Extend a package</DialogTitle>
             <DialogDescription>
-              Choose which running package you want to extend (stack quotas & time).
+              Choose which running package you want to extend (adds quotas and extends time on that package).
             </DialogDescription>
           </DialogHeader>
 
@@ -464,9 +487,9 @@ export default function BillingPage() {
               <button
                 key={s.id}
                 type="button"
-                onClick={() => setExtendPlanId(s.planId)}
+                onClick={() => setExtendSubId(s.id)}
                 className={`w-full text-left rounded-xl border p-3 hover:bg-gray-50 ${
-                  extendPlanId === s.planId ? 'border-[#004AAD] bg-[#004AAD]/5' : ''
+                  extendSubId === s.id ? 'border-[#004AAD] bg-[#004AAD]/5' : ''
                 }`}
               >
                 <div className="font-medium">{s.plan?.name ?? 'Package'}</div>
@@ -479,7 +502,7 @@ export default function BillingPage() {
             <Button variant="outline" onClick={() => setExtendPickerOpen(false)}>
               Cancel
             </Button>
-            <Button className="bg-[#004AAD] hover:bg-[#00398a]" onClick={confirmExtend} disabled={!extendPlanId}>
+            <Button className="bg-[#004AAD] hover:bg-[#00398a]" onClick={confirmExtend} disabled={!extendSubId}>
               Continue to payment
             </Button>
           </DialogFooter>
@@ -491,6 +514,7 @@ export default function BillingPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         plan={selectedPlan}
+        targetSubscriptionId={targetSubscriptionId}
         onSuccess={() => load()}
       />
     </section>

@@ -1,7 +1,8 @@
-'use client';
+// frontend/src/app/properties/[id]/page.tsx
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   BedDouble,
   Bath,
@@ -11,20 +12,16 @@ import {
   ArrowRight,
   MapPin,
   ZoomIn,
-} from 'lucide-react';
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
   DialogFooter,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import ContactCard from '@/components/ContactCard';
-import { API_BASE } from "@/lib/api";
-
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import ContactCard from "@/components/ContactCard";
+import { apiGet } from "@/lib/api";
 
 type Unit = {
   id: string;
@@ -46,7 +43,7 @@ type Property = {
   title: string;
   location: string;
   description: string;
-  status: 'DRAFT' | 'PUBLISHED' | 'UNPUBLISHED';
+  status: "DRAFT" | "PUBLISHED" | "UNPUBLISHED";
   images: Img[];
   units: Unit[];
   lister?: Lister | null;
@@ -59,9 +56,9 @@ type Property = {
 
 /* -------- Helpers -------- */
 function formatKES(n: number | undefined | null) {
-  if (!n && n !== 0) return '';
+  if (!n && n !== 0) return "";
   try {
-    return n.toLocaleString('en-KE', { maximumFractionDigits: 0 });
+    return n.toLocaleString("en-KE", { maximumFractionDigits: 0 });
   } catch {
     return String(n);
   }
@@ -144,7 +141,7 @@ function ImageSlider({
               key={img.id}
               onClick={() => setIndex(i)}
               className={`h-16 w-20 flex-shrink-0 rounded border overflow-hidden ${
-                i === index ? 'ring-2 ring-brand-blue' : ''
+                i === index ? "ring-2 ring-brand-blue" : ""
               }`}
             >
               <img
@@ -157,7 +154,7 @@ function ImageSlider({
         </div>
       )}
 
-      {/* Rent & share overlay (below thumbnails now) */}
+      {/* Rent & share overlay */}
       <div className="bg-black/50 text-white flex flex-col md:flex-row md:items-end justify-between p-4 gap-2 rounded-lg">
         {minRent !== null && (
           <div>
@@ -201,7 +198,7 @@ function ImageSlider({
               </>
             )}
           </div>
-          {/* thumbs in zoom too */}
+
           {images.length > 1 && (
             <div className="flex gap-2 p-3 bg-black overflow-x-auto">
               {images.map((img, i) => (
@@ -209,7 +206,7 @@ function ImageSlider({
                   key={img.id}
                   onClick={() => setIndex(i)}
                   className={`h-20 w-28 flex-shrink-0 rounded border overflow-hidden ${
-                    i === index ? 'ring-2 ring-blue-400' : ''
+                    i === index ? "ring-2 ring-blue-400" : ""
                   }`}
                 >
                   <img
@@ -227,25 +224,23 @@ function ImageSlider({
   );
 }
 
-/* -------- Fetch helpers -------- */
+/* -------- Fetch helpers (now using apiGet) -------- */
 async function fetchProperty(id: string): Promise<Property | null> {
-  try {
-    const res = await fetch(`${API_BASE}/api/properties/${id}`, { cache: 'no-store' });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
+  // Try the simplest, most common endpoint first
+  const res1 = await apiGet<Property>(`/properties/${id}`, { cache: "no-store" as any });
+  if (res1.ok && res1.data?.id) return res1.data;
+
+  // Fallback if your backend uses /details for richer includes
+  const res2 = await apiGet<Property>(`/properties/${id}/details`, { cache: "no-store" as any });
+  if (res2.ok && res2.data?.id) return res2.data;
+
+  return null;
 }
+
 async function fetchSimilar(id: string): Promise<Property[]> {
-  try {
-    const res = await fetch(`${API_BASE}/api/properties/${id}/similar`, { cache: 'no-store' });
-    if (!res.ok) return [];
-    const d = await res.json();
-    return Array.isArray(d) ? d : [];
-  } catch {
-    return [];
-  }
+  const res = await apiGet<Property[]>(`/properties/${id}/similar`, { cache: "no-store" as any });
+  if (!res.ok || !Array.isArray(res.data)) return [];
+  return res.data;
 }
 
 /* -------- Page -------- */
@@ -257,27 +252,34 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
 
   // contact modal (for guest users inside dialog)
   const [contactOpen, setContactOpen] = useState(false);
-  const [contactName, setContactName] = useState('');
-  const [contactEmail, setContactEmail] = useState('');
-  const [contactPhone, setContactPhone] = useState('');
-  const [contactMsg, setContactMsg] = useState('');
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactMsg, setContactMsg] = useState("");
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
     let ignore = false;
     (async () => {
       setLoading(true);
+      setErr(null);
+
       const p = await fetchProperty(params.id);
-      if (!ignore) {
-        if (!p || p.status !== 'PUBLISHED') {
-          setErr('Property not found.');
-        } else {
-          setProp(p);
-          fetchSimilar(p.id).then(setSimilar);
-        }
-        setLoading(false);
+
+      if (ignore) return;
+
+      if (!p || p.status !== "PUBLISHED") {
+        setErr("Property not found.");
+        setProp(null);
+      } else {
+        setProp(p);
+        fetchSimilar(p.id).then((s) => {
+          if (!ignore) setSimilar(s);
+        });
       }
+      setLoading(false);
     })();
+
     return () => {
       ignore = true;
     };
@@ -304,12 +306,12 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
 
   async function sharePage() {
     try {
-      const url = typeof window !== 'undefined' ? window.location.href : '';
+      const url = typeof window !== "undefined" ? window.location.href : "";
       if (navigator.share) {
         await navigator.share({ title: prop?.title, text: prop?.description, url });
       } else {
         await navigator.clipboard.writeText(url);
-        alert('Link copied to clipboard.');
+        alert("Link copied to clipboard.");
       }
     } catch {}
   }
@@ -318,38 +320,34 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
     if (!prop) return;
     setSending(true);
     try {
-      const token = localStorage.getItem('rk_token');
+      const token = localStorage.getItem("rk_token");
+
       if (token && prop.lister?.id) {
-        await fetch(`${API_BASE}/api/messages/threads`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            propertyId: prop.id,
-            toUserId: prop.lister.id,
-            content: contactMsg || `Hi, I'm interested in ${prop.title}.`,
-          }),
-        });
+        // logged-in messaging
+        await apiPostViaFetch("/messages/threads", {
+          propertyId: prop.id,
+          toUserId: prop.lister.id,
+          content: contactMsg || `Hi, I'm interested in ${prop.title}.`,
+        }, token);
       } else {
-        await fetch(`${API_BASE}/api/contact`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: contactName,
-            email: contactEmail,
-            phone: contactPhone,
-            message: contactMsg,
-            propertyId: prop.id,
-          }),
+        // guest contact
+        await apiPostViaFetch("/contact", {
+          name: contactName,
+          email: contactEmail,
+          phone: contactPhone,
+          message: contactMsg,
+          propertyId: prop.id,
         });
       }
-      alert('Message sent.');
+
+      alert("Message sent.");
       setContactOpen(false);
-      setContactMsg('');
-      setContactName('');
-      setContactEmail('');
-      setContactPhone('');
+      setContactMsg("");
+      setContactName("");
+      setContactEmail("");
+      setContactPhone("");
     } catch {
-      alert('Failed to send message.');
+      alert("Failed to send message.");
     } finally {
       setSending(false);
     }
@@ -360,33 +358,31 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
     return (
       <main className="container py-16 text-center">
         <h1 className="text-2xl">Not found</h1>
-        <p>{err || 'Unavailable'}</p>
+        <p>{err || "Unavailable"}</p>
       </main>
     );
 
   const statusLabel =
-    prop.status === 'PUBLISHED'
-      ? 'Available'
-      : prop.status === 'UNPUBLISHED'
-      ? 'Rented'
-      : '';
+    prop.status === "PUBLISHED"
+      ? "Available"
+      : prop.status === "UNPUBLISHED"
+      ? "Rented"
+      : "";
 
   return (
     <main className="container py-6 space-y-8">
-      {/* Hero slider */}
       <ImageSlider images={prop.images} minRent={minRent} onShare={sharePage} />
 
       <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Left */}
         <div className="md:col-span-2 space-y-6">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-3xl font-semibold">{prop.title}</h1>
             {statusLabel && (
               <span
                 className={`px-2 py-1 text-xs rounded-full ${
-                  statusLabel === 'Available'
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-red-100 text-red-700'
+                  statusLabel === "Available"
+                    ? "bg-green-100 text-green-700"
+                    : "bg-red-100 text-red-700"
                 }`}
               >
                 {statusLabel}
@@ -394,17 +390,15 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
             )}
           </div>
 
-          {/* Location */}
           <p className="text-gray-700 flex items-center gap-2">
             <MapPin className="h-4 w-4 text-brand-blue" />
-            {prop.area ? `${prop.area}, ` : ''}
-            {prop.location ? `${prop.location} — ` : ''}
-            {prop.county || ''}
-            {prop.constituency ? `, ${prop.constituency}` : ''}
-            {prop.ward ? `, ${prop.ward}` : ''}
+            {prop.area ? `${prop.area}, ` : ""}
+            {prop.location ? `${prop.location} — ` : ""}
+            {prop.county || ""}
+            {prop.constituency ? `, ${prop.constituency}` : ""}
+            {prop.ward ? `, ${prop.ward}` : ""}
           </p>
 
-          {/* Summary */}
           {summary && (
             <div className="flex flex-wrap gap-4 text-sm">
               <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100">
@@ -419,10 +413,8 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
             </div>
           )}
 
-          {/* Description */}
           <p className="text-gray-800 whitespace-pre-line">{prop.description}</p>
 
-          {/* Price breakdown */}
           {prop.units && prop.units.length > 0 && (
             <div className="space-y-2">
               <h4 className="font-semibold text-lg">Units & Prices</h4>
@@ -430,7 +422,7 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
                 {prop.units.map((u) => (
                   <li key={u.id} className="flex justify-between border-b pb-1">
                     <span>
-                      {u.type || 'Unit'} — {u.bedrooms} Bed / {u.bathrooms} Bath
+                      {u.type || "Unit"} — {u.bedrooms} Bed / {u.bathrooms} Bath
                     </span>
                     <span>KES {formatKES(u.rent)} / month</span>
                   </li>
@@ -439,7 +431,6 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
             </div>
           )}
 
-          {/* Amenities */}
           {prop.amenities && prop.amenities.length > 0 && (
             <div className="space-y-2">
               <h4 className="font-semibold text-lg">Amenities</h4>
@@ -457,22 +448,20 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
           )}
         </div>
 
-        {/* ContactCard */}
         <div className="space-y-4">
           <ContactCard lister={prop.lister ?? undefined} propertyId={prop.id} />
           {prop.lister?.createdAt && (
             <p className="text-xs text-gray-500 text-center">
-              Lister since{' '}
-              {new Date(prop.lister.createdAt).toLocaleDateString('en-KE', {
-                year: 'numeric',
-                month: 'short',
+              Lister since{" "}
+              {new Date(prop.lister.createdAt).toLocaleDateString("en-KE", {
+                year: "numeric",
+                month: "short",
               })}
             </p>
           )}
         </div>
       </section>
 
-      {/* Similar slider */}
       {similar.length > 0 && (
         <section className="space-y-3">
           <div className="flex items-center justify-between">
@@ -493,16 +482,16 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
                   className="min-w-[240px] rounded-xl border shadow hover:shadow-md transition"
                 >
                   <img
-                    src={s.images?.[0]?.url ?? '/placeholder.webp'}
+                    src={s.images?.[0]?.url ?? "/placeholder.webp"}
                     alt={s.title}
                     className="w-full h-36 object-cover rounded-t-xl"
                   />
                   <div className="p-3">
                     <div className="font-medium line-clamp-1">{s.title}</div>
                     <div className="text-sm text-gray-600 line-clamp-1">
-                      {s.area ? `${s.area}, ` : ''}
-                      {s.location ? `${s.location} — ` : ''}
-                      {s.county || ''}
+                      {s.area ? `${s.area}, ` : ""}
+                      {s.location ? `${s.location} — ` : ""}
+                      {s.county || ""}
                     </div>
                   </div>
                 </Link>
@@ -512,15 +501,8 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
         </section>
       )}
 
-      {/* Contact modal for guests */}
       <Dialog open={contactOpen} onOpenChange={setContactOpen}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Send a message</DialogTitle>
-            <DialogDescription>
-              Ask about availability, viewing, or more details.
-            </DialogDescription>
-          </DialogHeader>
           <div className="space-y-2">
             <Input
               placeholder="Your name"
@@ -546,19 +528,43 @@ export default function PropertyPage({ params }: { params: { id: string } }) {
             />
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setContactOpen(false)}
-              disabled={sending}
-            >
+            <Button variant="outline" onClick={() => setContactOpen(false)} disabled={sending}>
               Cancel
             </Button>
             <Button onClick={sendMessage} disabled={sending}>
-              {sending ? 'Sending…' : 'Send Message'}
+              {sending ? "Sending…" : "Send Message"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </main>
   );
+}
+
+/**
+ * Small helper for endpoints that are not yet wrapped in apiPost/apiFetch in this file.
+ * Uses API helper's base normalization by calling apiGet style url indirectly is not possible here,
+ * so we keep it minimal and correct: pass paths like "/messages/threads".
+ */
+async function apiPostViaFetch(path: string, body: any, token?: string) {
+  // Use apiGet just to obtain the normalized base behavior indirectly? Not needed.
+  // Instead, call apiGet's base by using relative /api routes via window fetch? We keep it simple:
+  const { API_BASE } = await import("@/lib/api");
+  const base = (API_BASE || "").replace(/\/+$/, "");
+  const url = `${base}${path.startsWith("/api") ? "" : "/api"}${path.startsWith("/") ? path : `/${path}`}`
+    .replace(/\/api\/api(\/|$)/, "/api$1");
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+  if (!res.ok) {
+    let msg = "Request failed";
+    try {
+      const j = await res.json();
+      msg = j?.message || msg;
+    } catch {}
+    throw new Error(msg);
+  }
+  return res;
 }

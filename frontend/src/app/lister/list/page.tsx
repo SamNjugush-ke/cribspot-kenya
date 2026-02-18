@@ -1,9 +1,20 @@
 // frontend/src/app/lister/list/page.tsx
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  usePathname,
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
+import { apiGet, apiPatch, apiPost, apiDelete } from "@/lib/api";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -59,25 +70,49 @@ type DraftPayload = Partial<{
   amenities: string[];
 }>;
 
-type AdminMap = Record<string, { constituencies: Record<string, { wards: string[] }> }>;
+type AdminMap = Record<
+  string,
+  { constituencies: Record<string, { wards: string[] }> }
+>;
 const ADMIN: AdminMap = KENYA_ADMIN as unknown as AdminMap;
 
+function trimOrEmpty(v: any) {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function uniq<T>(arr: T[]) {
+  return Array.from(new Set(arr));
+}
+
 async function createDraft(payload: DraftPayload) {
-  const res = await apiPost<Prop>("/properties", payload);
-  if (!res.ok || !res.data) throw new Error((res.data as any)?.message || `Draft create failed (${res.status})`);
-  return res.data;
+  const res = await apiPost<{ property?: Prop } | Prop>("/properties", payload);
+  const data: any = res.data;
+
+  // backend sometimes returns {property, quota}; sometimes returns property directly
+  const prop: Prop | undefined = data?.property ?? data;
+
+  if (!res.ok || !prop?.id) {
+    throw new Error(data?.message || `Draft create failed (${res.status})`);
+  }
+  return prop;
 }
 
 async function updateDraft(id: string, payload: DraftPayload) {
   const res = await apiPatch<Prop>(`/properties/${id}`, payload);
-  if (!res.ok || !res.data) throw new Error((res.data as any)?.message || `Draft save failed (${res.status})`);
-  return res.data;
+  const data: any = res.data;
+  if (!res.ok || !data?.id) {
+    throw new Error(data?.message || `Draft save failed (${res.status})`);
+  }
+  return data;
 }
 
 async function publishListing(id: string) {
   const res = await apiPatch<Prop>(`/properties/${id}/publish`, {});
-  if (!res.ok || !res.data) throw new Error((res.data as any)?.message || `Publish failed (${res.status})`);
-  return res.data;
+  const data: any = res.data;
+  if (!res.ok || !data?.id) {
+    throw new Error(data?.message || `Publish failed (${res.status})`);
+  }
+  return data;
 }
 
 /**
@@ -93,6 +128,7 @@ export default function ListerListPage() {
 
 function ListingFlowInner() {
   const router = useRouter();
+  const pathname = usePathname(); // IMPORTANT: supports /dashboard/lister/list re-export
   const sp = useSearchParams();
   const existingId = sp.get("id");
 
@@ -120,108 +156,196 @@ function ListingFlowInner() {
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
+  // Keep a stable reference to current property id (avoid “detached id” issues)
+  const propertyIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    propertyIdRef.current = property?.id || null;
+  }, [property?.id]);
+
   const loadDrafts = useCallback(async () => {
-    const res = await apiGet<{ items: Prop[] }>("/properties/mine?status=DRAFT");
+    const res = await apiGet<{ items: Prop[] }>("/properties/mine", {
+      params: { status: "DRAFT" },
+    });
     if (res.ok && res.data?.items) setDrafts(res.data.items);
   }, []);
+
   useEffect(() => {
     loadDrafts();
   }, [loadDrafts]);
 
+  // Load an existing draft/property if ?id=...
   useEffect(() => {
     if (!existingId) return;
+
     (async () => {
-      const res = await apiGet<Prop>(`/properties/${existingId}`);
-      if (!res.ok || !res.data) return;
+      setMsg(null);
+      setError(null);
+
+      // Prefer “details” endpoint if available (often includes richer relations).
+      // If it 404s, fall back to the standard :id endpoint.
+      const try1 = await apiGet<Prop>(`/properties/${existingId}/details`);
+      const res = try1.ok ? try1 : await apiGet<Prop>(`/properties/${existingId}`);
+
+      if (!res.ok || !res.data?.id) {
+        setError((res.data as any)?.message || "Failed to load draft");
+        return;
+      }
 
       const p = res.data;
       setProperty(p);
 
-      setTitle(p.title || "");
-      setLocation(p.location || "");
-      setCounty(p.county || "");
-      setConstituency(p.constituency || "");
-      setWard(p.ward || "");
-      setDescription(p.description || "");
+      // Trim everything (prevents “value not in options” due to whitespace)
+      setTitle(trimOrEmpty(p.title));
+      setLocation(trimOrEmpty(p.location));
+      setCounty(trimOrEmpty(p.county));
+      setConstituency(trimOrEmpty(p.constituency));
+      setWard(trimOrEmpty(p.ward));
+      setDescription(trimOrEmpty(p.description));
 
       setUnits(p.units || []);
-      setImageUrls((p.images || []).map((i) => i.url));
-      setAmenityNames((p.amenities || []).map((a) => a.amenity?.name).filter(Boolean as any));
+      setImageUrls((p.images || []).map((i) => i.url).filter(Boolean));
+      setAmenityNames(
+        (p.amenities || [])
+          .map((a) => a.amenity?.name)
+          .filter(Boolean as any)
+      );
 
+      // If they loaded an existing draft, open the flow more helpfully
       setOpen1(true);
       setOpen2(true);
       setOpen3(false);
       setShowReview(false);
-      setMsg(null);
-      setError(null);
     })();
   }, [existingId]);
 
-  const countyOptions = useMemo(() => Object.keys(ADMIN).sort(), []);
-  const constituencyOptions = useMemo(
-    () => (county ? Object.keys(ADMIN[county]?.constituencies || {}).sort() : []),
-    [county]
-  );
-  const wardOptions = useMemo(
-    () => (county && constituency ? (ADMIN[county]?.constituencies[constituency]?.wards || []).slice().sort() : []),
-    [county, constituency]
-  );
+  // Admin options (+ safety: include current value even if it isn't in the ADMIN map)
+  const countyOptions = useMemo(() => {
+    const keys = Object.keys(ADMIN).sort();
+    const cur = trimOrEmpty(county);
+    return uniq(cur && !keys.includes(cur) ? [cur, ...keys] : keys);
+  }, [county]);
+
+  const constituencyOptions = useMemo(() => {
+    const curCounty = trimOrEmpty(county);
+    const keys = curCounty
+      ? Object.keys(ADMIN[curCounty]?.constituencies || {}).sort()
+      : [];
+    const cur = trimOrEmpty(constituency);
+    return uniq(cur && !keys.includes(cur) ? [cur, ...keys] : keys);
+  }, [county, constituency]);
+
+  const wardOptions = useMemo(() => {
+    const curCounty = trimOrEmpty(county);
+    const curConst = trimOrEmpty(constituency);
+    const keys =
+      curCounty && curConst
+        ? (ADMIN[curCounty]?.constituencies?.[curConst]?.wards || [])
+            .slice()
+            .sort()
+        : [];
+    const cur = trimOrEmpty(ward);
+    return uniq(cur && !keys.includes(cur) ? [cur, ...keys] : keys);
+  }, [county, constituency, ward]);
 
   const step1Valid =
     !!title.trim() &&
     !!location.trim() &&
-    !!county &&
-    !!constituency &&
-    !!ward &&
+    !!county.trim() &&
+    !!constituency.trim() &&
+    !!ward.trim() &&
     !!description.trim();
 
   const step2Valid = units.length > 0 && units.every((u) => u.type && u.rent >= 0);
   const step3Valid = imageUrls.length > 0;
   const canReview = step1Valid && step2Valid && step3Valid;
 
-  // debounced autosave
+  // Debounced autosave (amenities and other quick changes)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const touchAutoSave = useCallback(
     (patch: DraftPayload) => {
-      if (!property) return;
+      const pid = propertyIdRef.current;
+      if (!pid) return;
+
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
+
       debounceTimer.current = setTimeout(async () => {
         try {
-          const updated = await updateDraft(property.id, patch);
+          // Hard guard: if property got reset somehow, don’t send garbage
+          if (!propertyIdRef.current) return;
+
+          const updated = await updateDraft(pid, patch);
           setProperty(updated);
           setMsg("Saved");
         } catch (e: any) {
-          setError(e?.message || "Auto-save failed");
+          const m = e?.message || "Auto-save failed";
+
+          // If backend says “Property not found”, the most common cause is:
+          // (a) wrong id in URL, (b) id got lost, or (c) draft got deleted elsewhere.
+          // We can attempt a quick re-fetch once to resync.
+          if (/property not found/i.test(m)) {
+            const refetch =
+              (await apiGet<Prop>(`/properties/${pid}/details`)) ||
+              (await apiGet<Prop>(`/properties/${pid}`));
+
+            if (refetch?.ok && refetch.data?.id) {
+              setProperty(refetch.data);
+              setMsg("Re-synced draft. Try again.");
+              return;
+            }
+          }
+
+          setError(m);
         }
       }, 600);
     },
-    [property]
+    []
+  );
+
+  const ensureDraftIdInUrl = useCallback(
+    (id: string) => {
+      // Keep them on the *current* page (supports /dashboard/lister/list)
+      router.replace(`${pathname}?id=${id}`);
+    },
+    [pathname, router]
   );
 
   const nextFromStep1 = async () => {
     setMsg(null);
     setError(null);
-    if (!step1Valid) return setError("Fill all Step 1 fields.");
+
+    if (!step1Valid) {
+      setError("Fill all Step 1 fields.");
+      return;
+    }
 
     try {
       setLoading(true);
-      if (!property) {
-        const p = await createDraft({
-          title,
-          location,
-          description,
-          county,
-          constituency,
-          ward,
-          status: "DRAFT",
-          amenities: amenityNames,
-        });
+
+      const payload: DraftPayload = {
+        title: title.trim(),
+        location: location.trim(),
+        description: description.trim(),
+        county: county.trim(),
+        constituency: constituency.trim(),
+        ward: ward.trim(),
+        status: "DRAFT",
+        amenities: amenityNames,
+      };
+
+      if (!property?.id) {
+        const p = await createDraft(payload);
         setProperty(p);
         setMsg("Draft created.");
+        ensureDraftIdInUrl(p.id); // 🔐 prevents “lost id” across step changes/refresh
+        loadDrafts();
       } else {
-        await updateDraft(property.id, { title, location, description, county, constituency, ward, amenities: amenityNames });
+        const updated = await updateDraft(property.id, payload);
+        setProperty(updated);
         setMsg("Saved.");
+        loadDrafts();
       }
+
       setOpen1(false);
       setOpen2(true);
     } catch (e: any) {
@@ -234,12 +358,23 @@ function ListingFlowInner() {
   const nextFromStep2 = async () => {
     setMsg(null);
     setError(null);
-    if (!property) return setError("Create draft first.");
-    if (!step2Valid) return setError("Complete units.");
+
+    const pid = propertyIdRef.current;
+    if (!pid) {
+      setError("Create draft first.");
+      return;
+    }
+    if (!step2Valid) {
+      setError("Complete units.");
+      return;
+    }
 
     try {
       setLoading(true);
-      const updated = await updateDraft(property.id, { units, amenities: amenityNames });
+      const updated = await updateDraft(pid, {
+        units,
+        amenities: amenityNames,
+      });
       setProperty(updated);
       setOpen2(false);
       setOpen3(true);
@@ -254,7 +389,10 @@ function ListingFlowInner() {
   const goReview = () => {
     setMsg(null);
     setError(null);
-    if (!canReview) return setError("Complete Steps 1–3.");
+    if (!canReview) {
+      setError("Complete Steps 1–3.");
+      return;
+    }
     setOpen1(false);
     setOpen2(false);
     setOpen3(false);
@@ -262,15 +400,21 @@ function ListingFlowInner() {
   };
 
   const publish = async () => {
-    if (!property) return;
+    const pid = propertyIdRef.current;
+    if (!pid) return;
+
     setLoading(true);
     setConfirmOpen(false);
     setMsg(null);
     setError(null);
 
     try {
-      await publishListing(property.id);
-      router.replace(`/properties/${property.id}`);
+      const updated = await publishListing(pid);
+      // Keep id in URL (useful if they come back)
+      ensureDraftIdInUrl(updated.id);
+
+      // Navigate to the public page
+      router.replace(`/properties/${updated.id}`);
     } catch (e: any) {
       setError(e?.message || "Failed to publish");
     } finally {
@@ -283,8 +427,10 @@ function ListingFlowInner() {
 
     const res = await apiDelete(`/properties/${id}`);
     if (res.ok) {
-      if (property?.id === id) {
+      if (propertyIdRef.current === id) {
         setProperty(null);
+        propertyIdRef.current = null;
+
         setTitle("");
         setLocation("");
         setCounty("");
@@ -298,10 +444,18 @@ function ListingFlowInner() {
         setOpen2(false);
         setOpen3(false);
         setShowReview(false);
-        router.replace("/lister/list");
+
+        router.replace(pathname); // stay in current layout (dashboard or not)
       }
       loadDrafts();
+    } else {
+      setError((res.data as any)?.message || "Failed to discard draft");
     }
+  };
+
+  const onEditDraft = (id: string) => {
+    // stay inside dashboard layout if that’s where we are
+    router.push(`${pathname}?id=${id}`);
   };
 
   return (
@@ -312,7 +466,11 @@ function ListingFlowInner() {
       <div className="rounded-xl border bg-white p-4">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold">Your Drafts</h2>
-          <Button className="bg-brand-blue text-white hover:bg-black" size="sm" onClick={loadDrafts}>
+          <Button
+            className="bg-brand-blue text-white hover:bg-black"
+            size="sm"
+            onClick={loadDrafts}
+          >
             Refresh
           </Button>
         </div>
@@ -328,7 +486,7 @@ function ListingFlowInner() {
                   <span className="text-gray-600"> — {d.location || "No location"}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button size="sm" variant="outline" onClick={() => router.push(`/lister/list?id=${d.id}`)}>
+                  <Button size="sm" variant="outline" onClick={() => onEditDraft(d.id)}>
                     ✏️ Edit
                   </Button>
                   <Button size="sm" variant="destructive" onClick={() => discardDraft(d.id)}>
@@ -357,12 +515,20 @@ function ListingFlowInner() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <Label>Title *</Label>
-                <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="2BR Apartment in Westlands" />
+                <Input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="2BR Apartment in Westlands"
+                />
               </div>
 
               <div>
                 <Label>Neighbourhood/Estate/Village/Locality *</Label>
-                <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Garden Estate, Roysambu" />
+                <Input
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="Garden Estate, Roysambu"
+                />
               </div>
 
               <div>
@@ -454,13 +620,13 @@ function ListingFlowInner() {
           type="button"
           onClick={() => setOpen2((v) => !v)}
           className="w-full flex items-center justify-between px-4 py-3"
-          disabled={!property}
+          disabled={!propertyIdRef.current}
         >
           <span className="font-semibold">Step 2 — Units & Amenities</span>
           {open2 ? <MinusCircle className="h-5 w-5" /> : <PlusCircle className="h-5 w-5" />}
         </button>
 
-        {open2 && property && (
+        {open2 && propertyIdRef.current && (
           <div className="px-4 pb-4 space-y-4">
             <UnitEditor value={units} onChange={(v) => setUnits(v)} />
 
@@ -473,8 +639,12 @@ function ListingFlowInner() {
                       type="checkbox"
                       checked={amenityNames.includes(a)}
                       onChange={(e) => {
-                        const next = e.target.checked ? [...amenityNames, a] : amenityNames.filter((x) => x !== a);
+                        const next = e.target.checked
+                          ? uniq([...amenityNames, a])
+                          : amenityNames.filter((x) => x !== a);
+
                         setAmenityNames(next);
+                        // autosave amenities (debounced + resync guard)
                         touchAutoSave({ amenities: next });
                       }}
                     />
@@ -497,15 +667,19 @@ function ListingFlowInner() {
           type="button"
           onClick={() => setOpen3((v) => !v)}
           className="w-full flex items-center justify-between px-4 py-3"
-          disabled={!property}
+          disabled={!propertyIdRef.current}
         >
           <span className="font-semibold">Step 3 — Images</span>
           {open3 ? <MinusCircle className="h-5 w-5" /> : <PlusCircle className="h-5 w-5" />}
         </button>
 
-        {open3 && property && (
+        {open3 && propertyIdRef.current && (
           <div className="px-4 pb-4 space-y-3">
-            <ImageUploader propertyId={property.id} images={imageUrls} onChange={(urls) => setImageUrls(urls)} />
+            <ImageUploader
+              propertyId={propertyIdRef.current}
+              images={imageUrls}
+              onChange={(urls) => setImageUrls(urls)}
+            />
             <Button variant="outline" onClick={goReview} disabled={!canReview}>
               Review
             </Button>
@@ -514,7 +688,7 @@ function ListingFlowInner() {
       </div>
 
       {/* REVIEW */}
-      {showReview && property && (
+      {showReview && propertyIdRef.current && (
         <div className="rounded-xl border bg-brand p-4">
           <h2 className="font-semibold mb-3">Review & Submit</h2>
           <ul className="list-disc pl-6 text-sm">
@@ -557,7 +731,9 @@ function ListingFlowInner() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Confirm publish</DialogTitle>
-            <DialogDescription>Publishing will consume 1 slot from your subscription quota.</DialogDescription>
+            <DialogDescription>
+              Publishing will consume 1 slot from your subscription quota.
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmOpen(false)}>

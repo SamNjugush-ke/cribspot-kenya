@@ -1,7 +1,6 @@
-//frontend/src/components/billing/CheckoutDialog.tsx
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,12 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import {
-  CheckCircle2,
-  Loader2,
-  ShieldAlert,
-  Smartphone,
-} from 'lucide-react';
+import { CheckCircle2, Loader2, ShieldAlert, Smartphone } from 'lucide-react';
 
 /* -------------------- types -------------------- */
 
@@ -83,18 +77,19 @@ export default function CheckoutDialog({
   open,
   onOpenChange,
   plan,
+  targetSubscriptionId,
   onSuccess,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   plan: Plan | null;
+  targetSubscriptionId?: string | null;
   onSuccess?: () => void;
 }) {
   const COUNTRY_CODE = '254';
 
   const [localPhone, setLocalPhone] = useState('7');
-  const [stage, setStage] =
-    useState<'idle' | 'initiated' | 'polling' | 'success' | 'failed'>('idle');
+  const [stage, setStage] = useState<'idle' | 'initiated' | 'polling' | 'success' | 'failed'>('idle');
 
   const [paymentId, setPaymentId] = useState<string | null>(null);
   const [providerMsg, setProviderMsg] = useState<string | null>(null);
@@ -141,10 +136,15 @@ export default function CheckoutDialog({
     try {
       setStage('initiated');
 
-      const res = await apiPost<InitRes>('/api/payments/mpesa/init', {
+      const payload: any = {
         planId: plan.id,
         phone: fullPhone,
-      });
+      };
+
+      // ✅ include targetSubscriptionId only if extending
+      if (targetSubscriptionId) payload.targetSubscriptionId = targetSubscriptionId;
+
+      const res = await apiPost<InitRes>('/api/payments/mpesa/init', payload);
 
       if (!res.ok || !res.json) {
         setStage('failed');
@@ -164,7 +164,7 @@ export default function CheckoutDialog({
   /* -------------------- Complete payment -------------------- */
 
   async function completePayment() {
-    if (!paymentId || !plan) return;
+    if (!paymentId) return;
 
     setErr(null);
     setStage('polling');
@@ -174,18 +174,27 @@ export default function CheckoutDialog({
         const mine = await apiGet<Payment[]>('/api/payments/mine');
         const list = mine.json || [];
 
-        const match = list.find(
-          (p) =>
-            p.id === paymentId &&
-            p.plan?.id === plan.id
-        );
+        const match = list.find((p) => p.id === paymentId);
 
         if (match) {
           setLatestPayment(match);
 
           if (match.status === 'SUCCESS' && match.transactionCode) {
-            const subRes = await apiGet<Subscription>('/api/subscriptions/me');
-            if (subRes.ok && subRes.json) setLatestSub(subRes.json);
+            // Billing page will refresh aggregates; still nice to show expiry
+            const subRes = await apiGet<any>('/api/subscriptions/me');
+            // /api/subscriptions/me returns snapshot; try best-effort to show latest expiry
+            if (subRes.ok && subRes.json) {
+              // supports either direct subscription or snapshot with subscriptions
+              const snap = subRes.json?.active ? subRes.json.active : subRes.json;
+              const subs: Subscription[] = Array.isArray(snap?.subscriptions) ? snap.subscriptions : [];
+              // if extending: try show that exact subscription, else show soonest-expiry
+              const chosen =
+                (targetSubscriptionId ? subs.find((s) => s.id === targetSubscriptionId) : null) ||
+                subs.sort((a, b) => new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime())[0] ||
+                null;
+
+              if (chosen) setLatestSub(chosen);
+            }
 
             setStage('success');
             onSuccess?.();
@@ -206,9 +215,7 @@ export default function CheckoutDialog({
         await new Promise((r) => setTimeout(r, 1500));
       }
 
-      setProviderMsg(
-        'Still pending. If you approved on your phone, click “Complete payment” again shortly.'
-      );
+      setProviderMsg('Still pending. If you approved on your phone, click “Complete payment” again shortly.');
     } catch (e: any) {
       setStage('failed');
       setErr(e?.message || 'Failed to confirm payment');
@@ -218,12 +225,9 @@ export default function CheckoutDialog({
   const badge = (() => {
     if (stage === 'success') return <Badge className="bg-green-100 text-green-700">SUCCESS</Badge>;
     if (stage === 'failed') return <Badge className="bg-red-100 text-red-700">FAILED</Badge>;
-    if (stage === 'polling' || stage === 'initiated')
-      return <Badge className="bg-yellow-100 text-yellow-800">PENDING</Badge>;
+    if (stage === 'polling' || stage === 'initiated') return <Badge className="bg-yellow-100 text-yellow-800">PENDING</Badge>;
     return <Badge className="bg-gray-100 text-gray-700">READY</Badge>;
   })();
-
-  /* -------------------- UI -------------------- */
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -235,6 +239,11 @@ export default function CheckoutDialog({
           </DialogTitle>
           <DialogDescription>
             Approve the M-Pesa prompt, then click <b>Complete payment</b>.
+            {targetSubscriptionId ? (
+              <span className="block mt-1 text-xs text-gray-600">
+                You’re extending an existing package.
+              </span>
+            ) : null}
           </DialogDescription>
         </DialogHeader>
 
@@ -284,9 +293,7 @@ export default function CheckoutDialog({
           {providerMsg && (
             <div className="rounded-xl border bg-blue-50 px-4 py-3 text-sm text-blue-800">
               {providerMsg}
-              {paymentId && (
-                <div className="mt-1 text-xs">Payment ID: {paymentId}</div>
-              )}
+              {paymentId && <div className="mt-1 text-xs">Payment ID: {paymentId}</div>}
             </div>
           )}
 
@@ -300,7 +307,7 @@ export default function CheckoutDialog({
           {stage === 'success' && latestSub && (
             <div className="rounded-xl border bg-green-50 px-4 py-3 text-sm text-green-800">
               <div className="flex items-center gap-2 font-semibold">
-                <CheckCircle2 className="h-4 w-4" /> Subscription active
+                <CheckCircle2 className="h-4 w-4" /> Subscription updated
               </div>
               <div className="mt-1 text-xs">
                 Expires: <b>{fmtDate(latestSub.expiresAt)}</b>

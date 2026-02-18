@@ -21,19 +21,28 @@ function normalizeMsisdn(input: string | undefined | null): string | null {
   return null;
 }
 
-/** Build a simple idempotency key for (user, plan, price) */
-function buildIdempotencyKey(userId: string, planId: string, amount: number) {
-  return `${userId}:${planId}:${amount}`;
+/**
+ * Build an idempotency key for (user, plan, amount, targetSubscriptionId/new).
+ * Important: includes targetSubscriptionId so "buy new" vs "extend existing" don't collide.
+ */
+function buildIdempotencyKey(
+  userId: string,
+  planId: string,
+  amount: number,
+  targetSubscriptionId?: string | null
+) {
+  return `${userId}:${planId}:${amount}:${targetSubscriptionId ?? "new"}`;
 }
 
 /**
  * Activate/extend subscription for a successful payment.
- * - Ensures single active subscription per user
- * - If there is an active subscription: extend quotas + extend expiry, and also update planId (upgrade)
- * - If none: create one
+ *
+ * ✅ Allows multiple active subscriptions per user (no merging).
+ * ✅ If payment.targetSubscriptionId exists: extend that specific subscription row only.
+ * ✅ Else: create a new subscription row.
+ * ✅ Never deactivates other active subscriptions.
  */
 async function activateSubscriptionFromPayment(paymentId: string) {
-  // Load payment + plan
   const payment = await prisma.payment.findUnique({
     where: { id: paymentId },
     include: { plan: true },
@@ -46,48 +55,54 @@ async function activateSubscriptionFromPayment(paymentId: string) {
   const ms = plan.durationInDays * 24 * 60 * 60 * 1000;
 
   await prisma.$transaction(async (tx) => {
-    // Deactivate any other active subscriptions (safety)
-    await tx.subscription.updateMany({
-      where: { userId: payment.userId, isActive: true },
-      data: { isActive: false },
-    });
+    // EXTEND A SPECIFIC SUBSCRIPTION
+    if (payment.targetSubscriptionId) {
+      const sub = await tx.subscription.findUnique({
+        where: { id: payment.targetSubscriptionId },
+      });
 
-    // Continue/extend the latest subscription record
-    const latest = await tx.subscription.findFirst({
-      where: { userId: payment.userId },
-      orderBy: { startedAt: "desc" },
-    });
+      // Must belong to payer
+      if (!sub || sub.userId !== payment.userId) {
+        console.warn(
+          "[activateSubscriptionFromPayment] targetSubscriptionId not found or not owned by user",
+          { paymentId: payment.id, userId: payment.userId, targetSubscriptionId: payment.targetSubscriptionId }
+        );
+        return;
+      }
 
-    if (latest) {
-      const base = latest.expiresAt && latest.expiresAt > now ? latest.expiresAt : now;
+      const base = sub.expiresAt && sub.expiresAt > now ? sub.expiresAt : now;
       const newExpiry = new Date(base.getTime() + ms);
 
       await tx.subscription.update({
-        where: { id: latest.id },
+        where: { id: sub.id },
         data: {
+          // keep planId consistent with the payment's plan (useful if plan was changed/renamed)
           planId: plan.id,
-          startedAt: latest.startedAt ?? now,
+          startedAt: sub.startedAt ?? now,
           expiresAt: newExpiry,
-          remainingListings: (latest.remainingListings ?? 0) + plan.totalListings,
-          remainingFeatured: (latest.remainingFeatured ?? 0) + plan.featuredListings,
-          isActive: true,
+          remainingListings: (sub.remainingListings ?? 0) + plan.totalListings,
+          remainingFeatured: (sub.remainingFeatured ?? 0) + plan.featuredListings,
+          isActive: true, // if it was expired/inactive, bring it back
         },
       });
-    } else {
-      const expiresAt = new Date(now.getTime() + ms);
 
-      await tx.subscription.create({
-        data: {
-          userId: payment.userId,
-          planId: plan.id,
-          startedAt: now,
-          expiresAt,
-          remainingListings: plan.totalListings,
-          remainingFeatured: plan.featuredListings,
-          isActive: true,
-        },
-      });
+      return;
     }
+
+    // BUY NEW PLAN (CREATE NEW SUBSCRIPTION ROW)
+    const expiresAt = new Date(now.getTime() + ms);
+
+    await tx.subscription.create({
+      data: {
+        userId: payment.userId,
+        planId: plan.id,
+        startedAt: now,
+        expiresAt,
+        remainingListings: plan.totalListings,
+        remainingFeatured: plan.featuredListings,
+        isActive: true,
+      },
+    });
   });
 }
 
@@ -173,17 +188,13 @@ async function initiateForPayment(args: {
 }
 
 /** Mark a payment as FAILED when STK initiation did not return a providerRef */
-async function failPaymentOnNoProviderRef(args: {
-  paymentId: string;
-  providerMsg?: string;
-}) {
+async function failPaymentOnNoProviderRef(args: { paymentId: string; providerMsg?: string }) {
   try {
     await prisma.payment.update({
       where: { id: args.paymentId },
       data: { status: PaymentStatus.FAILED },
     });
   } catch (e) {
-    // don't block response on a DB update failure
     console.error("[payments] failed to mark payment FAILED:", args.paymentId, e);
   }
 
@@ -195,15 +206,27 @@ async function failPaymentOnNoProviderRef(args: {
 }
 
 /** ---------------- B1: Init STK payment ---------------- */
-/** POST /api/payments/mpesa/init  body: { planId: string, phone: string } */
+/**
+ * POST /api/payments/mpesa/init
+ * body: { planId: string, phone: string, targetSubscriptionId?: string }
+ *
+ * targetSubscriptionId:
+ * - provided when extending a specific running subscription
+ * - omitted when buying a plan fresh (creates a new subscription row on success)
+ */
 export const initMpesaPayment = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
-    const { planId, phone } = req.body as { planId?: string; phone?: string };
+    const { planId, phone, targetSubscriptionId } = req.body as {
+      planId?: string;
+      phone?: string;
+      targetSubscriptionId?: string;
+    };
 
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
-    if (!planId || !phone)
+    if (!planId || !phone) {
       return res.status(400).json({ message: "planId and phone are required" });
+    }
 
     const normalized = normalizeMsisdn(phone);
     if (!normalized) {
@@ -214,19 +237,31 @@ export const initMpesaPayment = async (req: Request, res: Response) => {
     }
 
     const plan = await prisma.subscriptionPlan.findUnique({ where: { id: planId } });
-    if (!plan || !plan.isActive)
+    if (!plan || !plan.isActive) {
       return res.status(404).json({ message: "Plan not found or inactive" });
+    }
 
-    const idemBase = buildIdempotencyKey(userId, planId, plan.price);
+    // If extending, ensure the subscription exists & belongs to the user (early validation).
+    if (targetSubscriptionId) {
+      const sub = await prisma.subscription.findUnique({ where: { id: targetSubscriptionId } });
+      if (!sub || sub.userId !== userId) {
+        return res.status(400).json({
+          message: "Invalid targetSubscriptionId (not found or not owned by user)",
+        });
+      }
+    }
 
-    // Reuse recent pending payment (15 minutes)
+    const idemKey = buildIdempotencyKey(userId, planId, plan.price, targetSubscriptionId ?? null);
+
+    // Reuse recent pending payment (15 minutes) WITH SAME targetSubscriptionId semantics
     const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000);
     const recentPending = await prisma.payment.findFirst({
       where: {
-        idempotencyKey: idemBase,
+        idempotencyKey: idemKey,
         userId,
         planId,
         amount: plan.price,
+        targetSubscriptionId: targetSubscriptionId ?? null,
         status: PaymentStatus.PENDING,
         createdAt: { gte: fifteenMinAgo },
       },
@@ -254,13 +289,20 @@ export const initMpesaPayment = async (req: Request, res: Response) => {
           amount: plan.price,
           status: PaymentStatus.PENDING,
           provider: PaymentProvider.MPESA,
-          idempotencyKey: idemBase,
+          idempotencyKey: idemKey,
+          targetSubscriptionId: targetSubscriptionId ?? null,
         },
       });
     } catch (e: any) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
         const existing = await prisma.payment.findFirst({
-          where: { idempotencyKey: idemBase, userId, planId, amount: plan.price },
+          where: {
+            idempotencyKey: idemKey,
+            userId,
+            planId,
+            amount: plan.price,
+            targetSubscriptionId: targetSubscriptionId ?? null,
+          },
           orderBy: { createdAt: "desc" },
         });
 
@@ -284,7 +326,8 @@ export const initMpesaPayment = async (req: Request, res: Response) => {
               amount: plan.price,
               status: PaymentStatus.PENDING,
               provider: PaymentProvider.MPESA,
-              idempotencyKey: `${idemBase}:retry:${Date.now()}`,
+              targetSubscriptionId: targetSubscriptionId ?? null,
+              idempotencyKey: `${idemKey}:retry:${Date.now()}`,
             },
           });
 
@@ -422,7 +465,6 @@ export const mpesaCallback = async (req: Request, res: Response) => {
     const isSuccess = parsed.resultCode === "0";
     const nextStatus = isSuccess ? PaymentStatus.SUCCESS : PaymentStatus.FAILED;
 
-    // Log before update for troubleshooting
     console.log("[mpesaCallback] Processing:", {
       paymentId: payment.id,
       userId: payment.userId,
@@ -432,6 +474,7 @@ export const mpesaCallback = async (req: Request, res: Response) => {
       receipt: parsed.receipt,
       amount: parsed.amount,
       phone: parsed.phone,
+      targetSubscriptionId: (payment as any).targetSubscriptionId ?? null,
     });
 
     const updated = await prisma.payment.update({
@@ -442,7 +485,6 @@ export const mpesaCallback = async (req: Request, res: Response) => {
       },
     });
 
-    // Log after update
     console.log("[mpesaCallback] Updated payment:", {
       paymentId: updated.id,
       status: updated.status,
@@ -454,11 +496,9 @@ export const mpesaCallback = async (req: Request, res: Response) => {
       console.log("[mpesaCallback] Subscription activated from payment:", updated.id);
     }
 
-    // ACK success regardless; provider expects ResultCode 0 for successful receipt
     return res.json({ ResultCode: 0, ResultDesc: "OK" });
   } catch (err) {
     console.error("[mpesaCallback] error:", err);
-    // Still ACK to avoid retries storm
     return res.json({ ResultCode: 0, ResultDesc: "OK" });
   }
 };
@@ -477,7 +517,9 @@ export const getMyPayments = async (req: Request, res: Response) => {
 
     return res.json(payments);
   } catch (err: any) {
-    return res.status(500).json({ message: "Failed to fetch payments", error: err?.message || err });
+    return res
+      .status(500)
+      .json({ message: "Failed to fetch payments", error: err?.message || err });
   }
 };
 
@@ -548,6 +590,8 @@ export const listAllPayments = async (req: Request, res: Response) => {
 
     return res.json({ items, meta: { take: safeTake } });
   } catch (err: any) {
-    return res.status(500).json({ message: "Failed to fetch payments", error: err?.message || err });
+    return res
+      .status(500)
+      .json({ message: "Failed to fetch payments", error: err?.message || err });
   }
 };

@@ -1,7 +1,6 @@
-// frontend/src/app/login/page.tsx
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,7 +17,7 @@ function dashboardFor(role: Role) {
     case "ADMIN":
       return "/dashboard/admin";
     case "LISTER":
-      return "/dashboard/lister/billing";
+      return "/dashboard/lister";
     case "RENTER":
       return "/dashboard/renter";
     case "AGENT":
@@ -28,6 +27,13 @@ function dashboardFor(role: Role) {
     default:
       return "/dashboard";
   }
+}
+
+/** Only allow safe internal redirects like "/dashboard/..." */
+function safeNext(next: string | null) {
+  if (!next) return null;
+  if (next.startsWith("/") && !next.startsWith("//")) return next;
+  return null;
 }
 
 /**
@@ -44,7 +50,17 @@ export default function LoginPage() {
 function LoginInner() {
   const router = useRouter();
   const sp = useSearchParams();
-  const next = sp.get("next");
+
+  const next = safeNext(sp.get("next"));
+
+  // ✅ show success message after signup redirect
+  const registered = sp.get("registered");
+  const registeredMsg = useMemo(() => {
+    if (registered === "1" || registered === "true" || registered === "yes") {
+      return "Account created successfully. Please log in.";
+    }
+    return null;
+  }, [registered]);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -57,10 +73,10 @@ function LoginInner() {
     setErr(null);
 
     try {
-      const res = await api.post<{ token: string; user: { id: string; name?: string; email?: string; role: Role } }>(
-        "/api/auth/login",
-        { email, password }
-      );
+      const res = await api.post<{
+        token: string;
+        user: { id: string; name?: string; email?: string; role: Role };
+      }>("/api/auth/login", { email, password });
 
       const token = res.data?.token;
       const u = res.data?.user;
@@ -84,7 +100,7 @@ function LoginInner() {
 
       const target = next || dashboardFor((u?.role || "RENTER") as Role);
       router.replace(target);
-    } catch (e: any) {
+    } catch {
       setErr("Login failed");
     } finally {
       setLoading(false);
@@ -99,6 +115,13 @@ function LoginInner() {
         </CardHeader>
 
         <CardContent>
+          {/* ✅ success banner */}
+          {registeredMsg && (
+            <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+              {registeredMsg}
+            </div>
+          )}
+
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
               <Label>Email</Label>

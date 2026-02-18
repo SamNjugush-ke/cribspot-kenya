@@ -1,3 +1,4 @@
+//frontend/src/components/dashboard/DashboardLayout.tsx
 'use client';
 
 import { useEffect, useState } from 'react';

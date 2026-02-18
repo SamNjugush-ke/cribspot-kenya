@@ -16,7 +16,7 @@ model User {
   isBanned                Boolean                   @default(false)
   createdAt               DateTime                  @default(now())
   updatedAt               DateTime                  @updatedAt
-  phone                   String?
+  phone                   String?                   @unique
   agentProfile            AgentProfile?
   alerts                  Alert[]
   analyticsLogs           AnalyticsLog[]
@@ -292,6 +292,7 @@ model Payment {
   idempotencyKey  String?          @unique
   provider        PaymentProvider  @default(MPESA)
   transactionCode String?
+  targetSubscriptionId String?
   plan            SubscriptionPlan @relation(fields: [planId], references: [id])
   user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 

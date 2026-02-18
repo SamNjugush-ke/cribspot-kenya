@@ -1,7 +1,6 @@
-import { PrismaClient, Prisma, Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
-
-const prisma = new PrismaClient();
+import prisma from "../src/utils/prisma";
+import { Prisma, Role } from "@prisma/client";
 
 /** ---------------- Helpers ---------------- */
 function slugify(input: string) {
