@@ -19,8 +19,7 @@ export const AMENITIES = [
 export const BEDROOM_OPTIONS = ["Any", "1", "2", "3", "4", "5+"];
 
 export const PROPERTY_TYPES = [
-  "Apartment", "Studio", "Bedsitter", "Hostel", "Townhouse",
-  "Office", "Shop", "Mansion", "Bungalow"
+  "Apartment", "Studio/Bedsitter","Bungalow", "Townhouse", "Mansion", "Hostel","Office", "Shop", 
 ];
 
 export const KENYA_COUNTIES = [
@@ -585,6 +584,62 @@ export const KENYA_ADMIN = {
       }
     }
   },
+    "Nairobi": {
+    "constituencies": {
+      "Westlands": {
+        "wards": ["Kangemi", "Karura", "Kitisuru", "Mountain View", "Parklands/Highridge"]
+      },
+      "Dagoretti North": {
+        "wards": ["Gatina", "Kabiro", "Kawangware", "Kileleshwa", "Kilimani"]
+      },
+      "Dagoretti South": {
+        "wards": ["Mutuini", "Ngando", "Riruta", "Uthiru/Ruthimitu", "Waithaka"]
+      },
+      "Langata": {
+        "wards": ["Karen", "Mugumo-Ini", "Nairobi West", "Nyayo Highrise", "South-C"]
+      },
+      "Kibra": {
+        "wards": ["Laini Saba", "Lindi", "Makina", "Sarangombe", "Woodley/Kenyatta Golf"]
+      },
+      "Roysambu": {
+        "wards": ["Githurai", "Kahawa", "Kahawa West", "Roysambu", "Zimmerman"]
+      },
+      "Kasarani": {
+        "wards": ["Claycity", "Kasarani", "Mwiki", "Njiru", "Ruai"]
+      },
+      "Ruaraka": {
+        "wards": ["Baba Dogo", "Korogocho", "Lucky Summer", "Mathare North", "Utalii"]
+      },
+      "Embakasi North": {
+        "wards": ["Dandora Area I", "Dandora Area Ii", "Dandora Area Iii", "Dandora Area Iv", "Kariobangi North"]
+      },
+      "Embakasi Central": {
+        "wards": ["Kayole Central", "Kayole North", "Kayole South", "Komarock", "Matopeni"]
+      },
+      "Embakasi East": {
+        "wards": ["Embakasi", "Lower Savannah", "Mihango", "Upper Savannah", "Utawala"]
+      },
+      "Embakasi South": {
+        "wards": ["Imara Daima", "Kwa Njenga", "Kwa Reuben", "Kware", "Pipeline"]
+      },
+      "Embakasi West": {
+        "wards": ["Umoja I", "Umoja II", "Mowlem", "Kariobangi South"]
+      },
+      "Makadara": {
+        "wards": ["Harambee", "Makongeni", "Maringo/Hamza", "Viwandani"]
+      },
+      "Kamukunji": {
+        "wards": ["Airbase", "California", "Eastleigh North", "Eastleigh South", "Pumwani"]
+      },
+      "Starehe": {
+        "wards": ["Landimawe", "Nairobi Central", "Nairobi South", "Ngara", "Pangani", "Ziwani/Kariokor"]
+      },
+      "Mathare": {
+        "wards": ["Hospital", "Huruma", "Kiamaiko", "Mabatini", "Mlango Kubwa", "Ngei"]
+      }
+    }
+  },
+
   "Nakuru": {
     "constituencies": {
       "Nakuru Town East": {

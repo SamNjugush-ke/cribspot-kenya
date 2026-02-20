@@ -93,10 +93,13 @@ export default function UnitEditor({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="Apartment">Apartment</SelectItem>
-                <SelectItem value="Studio">Studio</SelectItem>
-                <SelectItem value="Bedsitter">Bedsitter</SelectItem>
+                <SelectItem value="Studio/Bedsitter">Studio</SelectItem>
                 <SelectItem value="Bungalow">Bungalow</SelectItem>
-                <SelectItem value="Townhouse">Townhouse</SelectItem>
+                <SelectItem value="Townhouse">Townhouse</SelectItem>                              
+                <SelectItem value="Mansion">Townhouse</SelectItem>                 
+                <SelectItem value="Hostel">Townhouse</SelectItem>                                 
+                <SelectItem value="Office">Townhouse</SelectItem>                               
+                <SelectItem value="Shop">Townhouse</SelectItem>
               </SelectContent>
             </Select>
           </div>
