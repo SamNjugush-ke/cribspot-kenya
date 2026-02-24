@@ -109,7 +109,7 @@ export function Hero() {
                 Browse Rentals
               </Link>
               <Link
-                href="/lister"
+                href="/list-property"
                 className="px-6 py-2 rounded-lg bg-brand-red text-white font-semibold hover:bg-brand-red/90 transition"
               >
                 List Property

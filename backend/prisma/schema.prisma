@@ -12,6 +12,8 @@ model User {
   name                    String
   email                   String                    @unique
   password                String
+  emailVerified           Boolean                   @default(true)
+  emailVerifiedAt         DateTime?
   role                    Role                      @default(LISTER)
   isBanned                Boolean                   @default(false)
   createdAt               DateTime                  @default(now())
@@ -35,6 +37,35 @@ model User {
   ticketsCreated          SupportTicket[]           @relation("TicketsCreated")
   UserPermissionOverride  UserPermissionOverride[]
   UserRoleDefinition      UserRoleDefinition[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  usedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Property {

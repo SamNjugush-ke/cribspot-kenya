@@ -11,7 +11,7 @@ export function CTA() {
         </p>
         <div className="flex justify-center gap-3 mt-6">
           <Link
-            href="/lister"
+            href="/list-property"
             className="px-4 py-2 rounded-lg bg-white text-brand-blue font-semibold"
           >
             List Property

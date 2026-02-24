@@ -1,6 +1,14 @@
 //src/routes/auth.routes.ts
 import express, { Request, Response, NextFunction } from "express";
-import { signup, login, getMe } from "../controllers/auth.controller";
+import {
+  signup,
+  login,
+  getMe,
+  verifyEmail,
+  resendVerification,
+  forgotPassword,
+  resetPassword,
+} from "../controllers/auth.controller";
 import { verifyToken } from "../middlewares/verifyToken";
 import { requireAuth } from "../middlewares/requireAuth";
 
@@ -22,5 +30,13 @@ function sanitizeSignupRole(req: Request, _res: Response, next: NextFunction) {
 router.post("/signup", sanitizeSignupRole, signup);
 router.post("/login", login);
 router.get("/me", verifyToken, requireAuth, getMe);
+
+// Email verification
+router.get("/verify-email", verifyEmail);
+router.post("/resend-verification", resendVerification);
+
+// Password reset
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
 
 export default router;

@@ -1,12 +1,13 @@
-'use client';
+// frontend/app/dashboard/super/plans/page.tsx
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import Guard from '@/components/auth/Guard';
-import { API_BASE } from '@/lib/api';
+import { useEffect, useMemo, useState } from "react";
+import Guard from "@/components/auth/Guard";
+import { API_BASE } from "@/lib/api";
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -14,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from '@/components/ui/dialog';
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -22,7 +23,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
+} from "@/components/ui/table";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,7 +31,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,7 +42,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
+} from "@/components/ui/alert-dialog";
 
 import {
   Plus,
@@ -53,8 +54,8 @@ import {
   PlayCircle,
   Trash2,
   Power,
-} from 'lucide-react';
-import { toast } from 'sonner';
+} from "lucide-react";
+import { toast } from "sonner";
 
 type Plan = {
   id: string;
@@ -63,61 +64,75 @@ type Plan = {
   durationInDays: number;
   totalListings: number;
   featuredListings: number;
-  isActive: boolean; // Active = Sales On, Suspended = Sales Off
+  isActive: boolean;
   createdAt?: string;
 };
 
-type Sort = { field: keyof Plan; dir: 'asc' | 'desc' };
+type Sort = { field: keyof Plan; dir: "asc" | "desc" };
 
-// ✅ First hit an admin-only “all plans” endpoint.
-// (We’ll add this endpoint on backend below.)
+/**
+ * IMPORTANT:
+ * API_BASE already includes `/api`.
+ * So paths must NOT start with `/api/...` or you get `/api/api/...` → 404.
+ *
+ * These candidates are ordered to prefer a super/admin list (all plans),
+ * and fall back to the public active-only list.
+ */
 const PLAN_LIST_ENDPOINT_CANDIDATES = [
-  '/api/plans/admin',          // ✅ admin list (ALL plans)
-  '/api/plans?scope=all',      // optional alternative if you prefer query based
-  '/api/admin/plans',
-  '/api/admin/subscriptions/plans',
-  '/api/plans',                // public (ACTIVE only)
+  "/plans/admin", // ✅ best: admin list (ALL plans)
+  "/plans?scope=all",
+  "/admin/plans",
+  "/admin/subscriptions/plans",
+  "/plans", // fallback: usually ACTIVE only
 ];
 
 function getToken() {
-  return typeof window !== 'undefined' ? localStorage.getItem('rk_token') : null;
+  return typeof window !== "undefined" ? localStorage.getItem("rk_token") : null;
+}
+
+function joinUrl(base: string, path: string) {
+  const b = (base || "").replace(/\/+$/, "");
+  const p = (path || "").replace(/^\/+/, "");
+  return `${b}/${p}`;
 }
 
 async function authedFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(joinUrl(API_BASE, path), {
     ...init,
+    cache: "no-store",
     headers: {
       ...(init?.headers || {}),
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
 
-  const text = await res.text();
-  let json: any = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {}
+  const contentType = res.headers.get("content-type") || "";
+  const body = contentType.includes("application/json")
+    ? await res.json().catch(() => null)
+    : await res.text().catch(() => "");
 
   if (!res.ok) {
-    const msg = json?.error || json?.message || `Request failed (${res.status})`;
+    const msg =
+      (body && (body.message || body.error)) ||
+      (typeof body === "string" && body.trim() ? body : null) ||
+      `Request failed (${res.status})`;
     const err: any = new Error(msg);
     err.status = res.status;
-    err.body = json;
+    err.body = body;
     throw err;
   }
-  return json as T;
+  return body as T;
 }
 
-async function tryEndpoints<T>(
-  fn: (path: string) => Promise<T>
-): Promise<{ path: string; data: T }> {
+async function tryEndpoints<T>(fn: (path: string) => Promise<T>): Promise<{ path: string; data: T }> {
   let lastErr: any = null;
   for (const path of PLAN_LIST_ENDPOINT_CANDIDATES) {
     try {
       const data = await fn(path);
       return { path, data };
     } catch (e: any) {
+      // keep trying on common "not allowed/not found" cases
       if ([401, 403, 404].includes(e?.status)) {
         lastErr = e;
         continue;
@@ -125,7 +140,7 @@ async function tryEndpoints<T>(
       throw e;
     }
   }
-  throw lastErr || new Error('No plans endpoint matched');
+  throw lastErr || new Error("No plans endpoint matched");
 }
 
 function moneyKES(n: number) {
@@ -149,7 +164,7 @@ function StatusPill({ isActive }: { isActive: boolean }) {
 
 export default function PlansPage() {
   return (
-    <Guard allowed={['SUPER_ADMIN']}>
+    <Guard allowed={["SUPER_ADMIN"]}>
       <PlansInner />
     </Guard>
   );
@@ -161,21 +176,21 @@ function PlansInner() {
   const [saving, setSaving] = useState(false);
   const [listSource, setListSource] = useState<string | null>(null);
 
-  const [q, setQ] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'SUSPENDED'>('ALL');
-  const [sort, setSort] = useState<Sort>({ field: 'createdAt' as any, dir: 'desc' });
+  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "SUSPENDED">("ALL");
+  const [sort, setSort] = useState<Sort>({ field: "createdAt" as any, dir: "desc" });
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<Plan | null>(null);
 
   // form
-  const [fName, setFName] = useState('');
+  const [fName, setFName] = useState("");
   const [fPrice, setFPrice] = useState<number>(0);
   const [fDuration, setFDuration] = useState<number>(30);
   const [fTotal, setFTotal] = useState<number>(10);
   const [fFeatured, setFFeatured] = useState<number>(0);
-  const [reason, setReason] = useState('');
+  const [reason, setReason] = useState("");
 
   useEffect(() => {
     load();
@@ -185,19 +200,33 @@ function PlansInner() {
   async function load() {
     try {
       setLoading(true);
-      const { path, data } = await tryEndpoints<any>((p) => authedFetch<any>(p, { method: 'GET' }));
 
+      const { path, data } = await tryEndpoints<any>((p) => authedFetch<any>(p, { method: "GET" }));
+
+      // Normalize shapes
       const arr: Plan[] = Array.isArray(data)
         ? data
         : Array.isArray(data?.items)
           ? data.items
-          : [];
+          : Array.isArray(data?.plans)
+            ? data.plans
+            : [];
+
+      // If backend returns numbers as strings, normalize lightly
+      const normalized = arr.map((p: any) => ({
+        ...p,
+        price: Number(p.price || 0),
+        durationInDays: Number(p.durationInDays || 0),
+        totalListings: Number(p.totalListings || 0),
+        featuredListings: Number(p.featuredListings || 0),
+        isActive: !!p.isActive,
+      })) as Plan[];
 
       setListSource(path);
-      setItems(arr);
+      setItems(normalized);
     } catch (e: any) {
       console.error(e);
-      toast.error(e?.message || 'Failed to load plans');
+      toast.error(e?.message || "Failed to load plans");
       setItems([]);
     } finally {
       setLoading(false);
@@ -216,18 +245,29 @@ function PlansInner() {
     let out = items.filter((p) => {
       const text = `${p.name} ${p.price} ${p.durationInDays} ${p.totalListings} ${p.featuredListings}`.toLowerCase();
       const okQ = !needle || text.includes(needle);
-      const okStatus =
-        statusFilter === 'ALL' ||
-        (statusFilter === 'ACTIVE' ? p.isActive : !p.isActive);
+      const okStatus = statusFilter === "ALL" || (statusFilter === "ACTIVE" ? p.isActive : !p.isActive);
       return okQ && okStatus;
     });
 
     out = [...out].sort((a, b) => {
       const v1: any = (a as any)[sort.field];
       const v2: any = (b as any)[sort.field];
-      const A = v1 === null || v1 === undefined ? '' : String(v1);
-      const B = v2 === null || v2 === undefined ? '' : String(v2);
-      return sort.dir === 'asc' ? A.localeCompare(B) : B.localeCompare(A);
+
+      // createdAt sorts better by date
+      if (sort.field === "createdAt") {
+        const t1 = v1 ? new Date(v1).getTime() : 0;
+        const t2 = v2 ? new Date(v2).getTime() : 0;
+        return sort.dir === "asc" ? t1 - t2 : t2 - t1;
+      }
+
+      // numbers
+      if (typeof v1 === "number" && typeof v2 === "number") {
+        return sort.dir === "asc" ? v1 - v2 : v2 - v1;
+      }
+
+      const A = v1 === null || v1 === undefined ? "" : String(v1);
+      const B = v2 === null || v2 === undefined ? "" : String(v2);
+      return sort.dir === "asc" ? A.localeCompare(B) : B.localeCompare(A);
     });
 
     return out;
@@ -235,12 +275,12 @@ function PlansInner() {
 
   function openCreate() {
     setEditing(null);
-    setFName('');
+    setFName("");
     setFPrice(0);
     setFDuration(30);
     setFTotal(10);
     setFFeatured(0);
-    setReason('');
+    setReason("");
     setCreateOpen(true);
   }
 
@@ -251,44 +291,64 @@ function PlansInner() {
     setFDuration(plan.durationInDays);
     setFTotal(plan.totalListings);
     setFFeatured(plan.featuredListings);
-    setReason('');
+    setReason("");
     setEditOpen(true);
   }
 
   function validateForm() {
     const name = fName.trim();
-    if (!name) return 'Plan name is required';
-    if (Number(fPrice) < 0) return 'Price cannot be negative';
-    if (Number(fDuration) <= 0) return 'Duration must be > 0';
-    if (Number(fTotal) < 0) return 'Total listings cannot be negative';
-    if (Number(fFeatured) < 0) return 'Featured listings cannot be negative';
-    if (Number(fFeatured) > Number(fTotal)) return 'Featured listings cannot exceed total listings';
+    if (!name) return "Plan name is required";
+    if (Number(fPrice) < 0) return "Price cannot be negative";
+    if (Number(fDuration) <= 0) return "Duration must be > 0";
+    if (Number(fTotal) < 0) return "Total listings cannot be negative";
+    if (Number(fFeatured) < 0) return "Featured listings cannot be negative";
+    if (Number(fFeatured) > Number(fTotal)) return "Featured listings cannot exceed total listings";
     return null;
   }
 
+  /**
+   * Create: try admin create endpoint first if you have it; else fallback.
+   * NOTE: paths must not start with `/api`.
+   */
   async function doCreate() {
     const err = validateForm();
     if (err) return toast.error(err);
 
     setSaving(true);
     try {
-      await authedFetch(`/api/plans`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: fName.trim(),
-          price: Number(fPrice),
-          durationInDays: Number(fDuration),
-          totalListings: Number(fTotal),
-          featuredListings: Number(fFeatured),
-          reason: reason || undefined,
-        }),
-      });
-      toast.success('Plan created');
+      const payload = {
+        name: fName.trim(),
+        price: Number(fPrice),
+        durationInDays: Number(fDuration),
+        totalListings: Number(fTotal),
+        featuredListings: Number(fFeatured),
+        reason: reason || undefined,
+      };
+
+      // Prefer admin create if present; fallback to /plans
+      try {
+        await authedFetch(`/plans/admin`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } catch (e: any) {
+        if (e?.status === 404) {
+          await authedFetch(`/plans`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+        } else {
+          throw e;
+        }
+      }
+
+      toast.success("Plan created");
       setCreateOpen(false);
       await load();
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to create plan');
+      toast.error(e?.message || "Failed to create plan");
     } finally {
       setSaving(false);
     }
@@ -301,9 +361,9 @@ function PlansInner() {
 
     setSaving(true);
     try {
-      await authedFetch(`/api/plans/${editing.id}`, {
-        method: 'PUT', // matches your route
-        headers: { 'Content-Type': 'application/json' },
+      await authedFetch(`/plans/${editing.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: fName.trim(),
           price: Number(fPrice),
@@ -314,12 +374,12 @@ function PlansInner() {
         }),
       });
 
-      toast.success('Plan updated');
+      toast.success("Plan updated");
       setEditOpen(false);
       setEditing(null);
       await load();
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to update plan');
+      toast.error(e?.message || "Failed to update plan");
     } finally {
       setSaving(false);
     }
@@ -328,11 +388,11 @@ function PlansInner() {
   async function doSuspend(plan: Plan) {
     setSaving(true);
     try {
-      await authedFetch(`/api/plans/${plan.id}/suspend`, { method: 'PATCH' });
+      await authedFetch(`/plans/${plan.id}/suspend`, { method: "PATCH" });
       toast.success(`Suspended: ${plan.name}`);
-      await load(); // will still show suspended because admin list returns all
+      await load();
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to suspend plan');
+      toast.error(e?.message || "Failed to suspend plan");
     } finally {
       setSaving(false);
     }
@@ -341,11 +401,11 @@ function PlansInner() {
   async function doResume(plan: Plan) {
     setSaving(true);
     try {
-      await authedFetch(`/api/plans/${plan.id}/resume`, { method: 'PATCH' });
+      await authedFetch(`/plans/${plan.id}/resume`, { method: "PATCH" });
       toast.success(`Resumed: ${plan.name}`);
       await load();
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to resume plan');
+      toast.error(e?.message || "Failed to resume plan");
     } finally {
       setSaving(false);
     }
@@ -354,9 +414,9 @@ function PlansInner() {
   async function doDelete(plan: Plan) {
     setSaving(true);
     try {
-      const resp: any = await authedFetch(`/api/plans/${plan.id}`, { method: 'DELETE' });
-      if (resp?.action === 'suspended') {
-        toast.message('Not deletable — suspended instead', {
+      const resp: any = await authedFetch(`/plans/${plan.id}`, { method: "DELETE" });
+      if (resp?.action === "suspended") {
+        toast.message("Not deletable — suspended instead", {
           description: `“${plan.name}” has active subscriptions, so it was suspended.`,
         });
       } else {
@@ -364,7 +424,7 @@ function PlansInner() {
       }
       await load();
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to delete plan');
+      toast.error(e?.message || "Failed to delete plan");
     } finally {
       setSaving(false);
     }
@@ -373,25 +433,25 @@ function PlansInner() {
   async function doStrictToggle(plan: Plan) {
     setSaving(true);
     try {
-      await authedFetch(`/api/plans/${plan.id}/toggle`, { method: 'PATCH' });
+      await authedFetch(`/plans/${plan.id}/toggle`, { method: "PATCH" });
       toast.success(`Toggled: ${plan.name}`);
       await load();
     } catch (e: any) {
-      toast.error(e?.message || 'Failed to toggle plan');
+      toast.error(e?.message || "Failed to toggle plan");
     } finally {
       setSaving(false);
     }
   }
 
-  const head = (label: string, field: keyof Plan | 'actions') => (
+  const head = (label: string, field: keyof Plan | "actions") => (
     <TableHead
-      className={field !== 'actions' ? 'cursor-pointer select-none' : ''}
+      className={field !== "actions" ? "cursor-pointer select-none" : ""}
       onClick={() => {
-        if (field === 'actions') return;
+        if (field === "actions") return;
         setSort((prev) =>
           prev.field === field
-            ? { field, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
-            : { field, dir: 'asc' }
+            ? { field, dir: prev.dir === "asc" ? "desc" : "asc" }
+            : { field, dir: "asc" }
         );
       }}
     >
@@ -405,13 +465,10 @@ function PlansInner() {
         <div className="space-y-1">
           <h1 className="text-2xl font-bold">Plans</h1>
           <div className="text-sm text-muted-foreground">
-            {loading ? 'Loading…' : `Showing ${displayed.length} of ${items.length}`}
+            {loading ? "Loading…" : `Showing ${displayed.length} of ${items.length}`}
           </div>
-          {listSource && (
-            <div className="text-xs text-muted-foreground">
-              Source: <code className="rounded bg-muted px-1 py-0.5">{listSource}</code>
-            </div>
-          )}
+          
+          
         </div>
 
         <div className="flex gap-2">
@@ -470,13 +527,13 @@ function PlansInner() {
         <Table>
           <TableHeader>
             <TableRow>
-              {head('Name', 'name')}
-              {head('Price', 'price')}
-              {head('Duration', 'durationInDays')}
-              {head('Listings', 'totalListings')}
-              {head('Featured', 'featuredListings')}
-              {head('Status', 'isActive')}
-              {head('Actions', 'actions')}
+              {head("Name", "name")}
+              {head("Price", "price")}
+              {head("Duration", "durationInDays")}
+              {head("Listings", "totalListings")}
+              {head("Featured", "featuredListings")}
+              {head("Status", "isActive")}
+              {head("Actions", "actions")}
             </TableRow>
           </TableHeader>
 
@@ -500,7 +557,9 @@ function PlansInner() {
                   <TableCell className="whitespace-nowrap">{p.durationInDays} days</TableCell>
                   <TableCell>{p.totalListings}</TableCell>
                   <TableCell>{p.featuredListings}</TableCell>
-                  <TableCell><StatusPill isActive={p.isActive} /></TableCell>
+                  <TableCell>
+                    <StatusPill isActive={p.isActive} />
+                  </TableCell>
 
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
@@ -552,9 +611,7 @@ function PlansInner() {
                               <AlertDialogContent>
                                 <AlertDialogHeader>
                                   <AlertDialogTitle>Resume this plan?</AlertDialogTitle>
-                                  <AlertDialogDesc>
-                                    It will become visible again to new subscribers.
-                                  </AlertDialogDesc>
+                                  <AlertDialogDesc>It will become visible again to new subscribers.</AlertDialogDesc>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -634,9 +691,7 @@ function PlansInner() {
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>Create new plan</DialogTitle>
-            <DialogDescription>
-              This plan will be available to new subscribers immediately (Sales On).
-            </DialogDescription>
+            <DialogDescription>This plan will be available to new subscribers immediately (Sales On).</DialogDescription>
           </DialogHeader>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -676,7 +731,7 @@ function PlansInner() {
               Cancel
             </Button>
             <Button onClick={doCreate} disabled={saving}>
-              {saving ? 'Creating…' : 'Create'}
+              {saving ? "Creating…" : "Create"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -687,9 +742,7 @@ function PlansInner() {
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>Edit plan</DialogTitle>
-            <DialogDescription>
-              Changes apply globally (DB is the source of truth).
-            </DialogDescription>
+            <DialogDescription>Changes apply globally (DB is the source of truth).</DialogDescription>
           </DialogHeader>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -729,7 +782,7 @@ function PlansInner() {
               Cancel
             </Button>
             <Button onClick={doUpdate} disabled={saving || !editing}>
-              {saving ? 'Saving…' : 'Save changes'}
+              {saving ? "Saving…" : "Save changes"}
             </Button>
           </DialogFooter>
         </DialogContent>

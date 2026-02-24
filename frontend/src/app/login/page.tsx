@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import api, { apiGet } from "@/lib/api";
+import { Eye, EyeOff } from "lucide-react";
 
 type Role = "SUPER_ADMIN" | "ADMIN" | "LISTER" | "RENTER" | "AGENT" | "EDITOR";
 
@@ -29,16 +30,12 @@ function dashboardFor(role: Role) {
   }
 }
 
-/** Only allow safe internal redirects like "/dashboard/..." */
 function safeNext(next: string | null) {
   if (!next) return null;
   if (next.startsWith("/") && !next.startsWith("//")) return next;
   return null;
 }
 
-/**
- * Next.js App Router: useSearchParams() must be under a Suspense boundary.
- */
 export default function LoginPage() {
   return (
     <Suspense fallback={<LoginSkeleton />}>
@@ -53,24 +50,39 @@ function LoginInner() {
 
   const next = safeNext(sp.get("next"));
 
-  // ✅ show success message after signup redirect
   const registered = sp.get("registered");
   const registeredMsg = useMemo(() => {
     if (registered === "1" || registered === "true" || registered === "yes") {
-      return "Account created successfully. Please log in.";
+      return "Account created successfully. Please check your email to confirm it before logging in.";
     }
     return null;
   }, [registered]);
 
+  const verified = sp.get("verified");
+  const verifiedMsg = useMemo(() => {
+    if (verified === "1" || verified === "true" || verified === "yes") {
+      return "Email confirmed successfully. You can now sign in.";
+    }
+    return null;
+  }, [verified]);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+
   const [loading, setLoading] = useState(false);
+
   const [err, setErr] = useState<string | null>(null);
+  const [errCode, setErrCode] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setErr(null);
+    setErrCode(null);
+    setInfo(null);
 
     try {
       const res = await api.post<{
@@ -82,11 +94,18 @@ function LoginInner() {
       const u = res.data?.user;
 
       if (!res.ok || !token) {
-        setErr((res.data as any)?.message || "Invalid credentials");
+        const msg = (res.data as any)?.message || res.error || "Invalid credentials";
+        const code = (res.data as any)?.code || null;
+        setErrCode(code);
+
+        if (code === "EMAIL_NOT_VERIFIED") {
+          setErr("Please confirm your email first. Check your inbox (and spam), or resend the verification email below.");
+        } else {
+          setErr(msg);
+        }
         return;
       }
 
-      // client-only storage
       localStorage.setItem("rk_token", token);
 
       if (u?.id) {
@@ -107,6 +126,26 @@ function LoginInner() {
     }
   };
 
+  const resendVerification = async () => {
+    setResending(true);
+    setErr(null);
+    setInfo(null);
+    try {
+      if (!email) {
+        setErr("Enter your email above, then click resend.");
+        return;
+      }
+      const r = await api.post("/api/auth/resend-verification", { email });
+      if (!r.ok) {
+        setErr((r.data as any)?.message || r.error || "Failed to resend verification email");
+        return;
+      }
+      setInfo((r.data as any)?.message || "Verification email resent. Please check your inbox (and spam).");
+    } finally {
+      setResending(false);
+    }
+  };
+
   return (
     <div className="min-h-[80vh] flex items-center justify-center px-4">
       <Card className="w-full max-w-md">
@@ -115,10 +154,21 @@ function LoginInner() {
         </CardHeader>
 
         <CardContent>
-          {/* ✅ success banner */}
           {registeredMsg && (
             <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
               {registeredMsg}
+            </div>
+          )}
+
+          {verifiedMsg && (
+            <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+              {verifiedMsg}
+            </div>
+          )}
+
+          {info && (
+            <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+              {info}
             </div>
           )}
 
@@ -130,10 +180,50 @@ function LoginInner() {
 
             <div>
               <Label>Password</Label>
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+
+              {/* ✅ Password with eye toggle */}
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-brand-blue transition-colors p-1"
+                  aria-label="Toggle password visibility"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+
+              <div className="mt-2 text-right text-sm">
+                <a className="text-brand-blue hover:text-brand-red underline" href="/forgot-password">
+                  Forgot password?
+                </a>
+              </div>
             </div>
 
             {err && <p className="text-sm text-red-600">{err}</p>}
+
+            {errCode === "EMAIL_NOT_VERIFIED" && (
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={resendVerification}
+                  disabled={resending}
+                  className="w-full rounded-lg px-3 py-2 border border-brand-blue text-brand-blue hover:border-brand-red hover:text-brand-red disabled:opacity-60"
+                >
+                  {resending ? "Resending…" : "Resend verification email"}
+                </button>
+                <p className="text-xs text-gray-600">
+                  Tip: If it still doesn’t arrive, check Spam/Promotions. (Email providers love playing hide-and-seek.)
+                </p>
+              </div>
+            )}
 
             <Button type="submit" disabled={loading} className="w-full">
               {loading ? "Signing in…" : "Sign in"}
@@ -142,7 +232,10 @@ function LoginInner() {
         </CardContent>
 
         <CardFooter className="justify-center text-sm text-muted-foreground">
-          Don’t have an account? <a className="ml-1 underline" href="/signup">Sign up</a>
+          Don’t have an account?{" "}
+          <a className="ml-1 underline" href="/signup">
+            Sign up
+          </a>
         </CardFooter>
       </Card>
     </div>

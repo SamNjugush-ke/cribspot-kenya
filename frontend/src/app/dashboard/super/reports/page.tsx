@@ -1,3 +1,4 @@
+// frontend/app/dashboard/super/reports/page.tsx
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -13,7 +14,6 @@ import { API_BASE } from "@/lib/api";
 
 type ExportKey = "users" | "listings" | "payments" | "subscriptions" | "audit";
 type ExportFormat = "csv" | "json";
-
 type AnyRow = Record<string, any>;
 
 function buildQuery(params: Record<string, string | undefined>) {
@@ -26,54 +26,54 @@ function buildQuery(params: Record<string, string | undefined>) {
 }
 
 function getTokenHeader(): HeadersInit {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("rk_token") : null;
-
+  const token = typeof window !== "undefined" ? localStorage.getItem("rk_token") : null;
   const h: Record<string, string> = {};
   if (token) h.Authorization = `Bearer ${token}`;
   return h;
 }
 
+function joinUrl(base: string, path: string) {
+  const b = (base || "").replace(/\/+$/, "");
+  const p = (path || "").replace(/^\/+/, "");
+  return `${b}/${p}`;
+}
 
+/**
+ * IMPORTANT:
+ * API_BASE already includes `/api` (standardized in @/lib/api)
+ * So super exports path must be: `${API_BASE}/admin/exports/...`
+ * NOT `${API_BASE}/api/admin/...` (that becomes /api/api/admin...)
+ */
 async function fetchJsonExport(key: ExportKey, query: string) {
-  const url = `${API_BASE}/api/admin/exports/${key}${query}`;
-  const res = await fetch(url, { headers: getTokenHeader() });
-  if (!res.ok) throw new Error(`Failed to load ${key} (${res.status})`);
-  const data = await res.json();
+  const url = joinUrl(API_BASE, `/admin/exports/${key}${query}`);
+  const res = await fetch(url, { headers: getTokenHeader(), cache: "no-store" });
+
+  const contentType = res.headers.get("content-type") || "";
+  const body = contentType.includes("application/json")
+    ? await res.json().catch(() => null)
+    : await res.text().catch(() => "");
+
+  if (!res.ok) {
+    const msg =
+      (body && (body.message || body.error)) ||
+      (typeof body === "string" && body.trim() ? body : null) ||
+      `Failed to load ${key} (${res.status})`;
+    throw new Error(msg);
+  }
 
   // Normalize common shapes
-  if (Array.isArray(data)) return data as AnyRow[];
-  if (data?.items && Array.isArray(data.items)) return data.items as AnyRow[];
-  if (data?.data && Array.isArray(data.data)) return data.data as AnyRow[];
+  if (Array.isArray(body)) return body as AnyRow[];
+  if (body?.items && Array.isArray(body.items)) return body.items as AnyRow[];
+  if (body?.data && Array.isArray(body.data)) return body.data as AnyRow[];
+  if (body?.rows && Array.isArray(body.rows)) return body.rows as AnyRow[];
   return [];
 }
 
-function safeIso(d: string) {
-  // Accept YYYY-MM-DD input
-  if (!d) return "";
-  const t = new Date(d);
-  if (Number.isNaN(t.getTime())) return "";
-  return t.toISOString();
-}
-
 function pickFirstDateField(row: AnyRow): string | null {
-  // Try common timestamp keys
-  const candidates = [
-    "createdAt",
-    "updatedAt",
-    "paidAt",
-    "date",
-    "timestamp",
-    "expiresAt",
-    "endAt",
-    "endsAt",
-    "startAt",
-  ];
+  const candidates = ["createdAt", "updatedAt", "paidAt", "date", "timestamp", "expiresAt", "endAt", "endsAt", "startAt"];
   for (const k of candidates) {
     if (row?.[k]) return k;
   }
-
-  // Last resort: find any key ending with "At"
   const atKey = Object.keys(row || {}).find((k) => /At$/.test(k) && row[k]);
   return atKey || null;
 }
@@ -98,8 +98,6 @@ function inDateRange(row: AnyRow, from?: string, to?: string) {
 function keywordHit(row: AnyRow, q: string) {
   const needle = q.trim().toLowerCase();
   if (!needle) return true;
-
-  // stringify shallowly; keep it cheap
   try {
     const text = JSON.stringify(row).toLowerCase();
     return text.includes(needle);
@@ -109,28 +107,17 @@ function keywordHit(row: AnyRow, q: string) {
 }
 
 function toCsv(rows: AnyRow[]) {
-  const headers = Array.from(
-    new Set(
-      rows.flatMap((r) => Object.keys(r || {}))
-    )
-  );
+  const headers = Array.from(new Set(rows.flatMap((r) => Object.keys(r || {}))));
 
   const esc = (v: any) => {
     if (v === null || v === undefined) return "";
-    const s =
-      typeof v === "string" || typeof v === "number" || typeof v === "boolean"
-        ? String(v)
-        : JSON.stringify(v);
+    const s = typeof v === "string" || typeof v === "number" || typeof v === "boolean" ? String(v) : JSON.stringify(v);
     const needsQuotes = /[,"\n]/.test(s);
     const safe = s.replace(/"/g, '""');
     return needsQuotes ? `"${safe}"` : safe;
   };
 
-  const lines = [
-    headers.join(","),
-    ...rows.map((r) => headers.map((h) => esc(r?.[h])).join(",")),
-  ];
-
+  const lines = [headers.join(","), ...rows.map((r) => headers.map((h) => esc(r?.[h])).join(","))];
   return lines.join("\n");
 }
 
@@ -232,16 +219,14 @@ function ReportsInner() {
   const paymentProviders = useMemo(() => uniqueValues(rawRows, "provider"), [rawRows]);
   const auditActions = useMemo(() => uniqueValues(rawRows, "action"), [rawRows]);
 
-  // Client-side filtering (so table changes “in real time” even if backend ignores filters)
+  // Client-side filtering
   const visibleRows = useMemo(() => {
     let out = [...rawRows];
 
-    // common
     out = out.filter((r) => inDateRange(r, from || undefined, to || undefined));
     out = out.filter((r) => keywordHit(r, q));
 
     if (tab === "users") {
-      // ACTIVE/INACTIVE mapped to isBanned (since that’s what you have)
       if (userStatus !== "ALL") {
         out = out.filter((r) => {
           const isBanned = !!r?.isBanned;
@@ -254,9 +239,7 @@ function ReportsInner() {
 
     if (tab === "listings") {
       if (listingStatus !== "ALL") out = out.filter((r) => String(r?.status) === listingStatus);
-      if (listingFeatured !== "ALL") {
-        out = out.filter((r) => (listingFeatured === "YES" ? !!r?.featured : !r?.featured));
-      }
+      if (listingFeatured !== "ALL") out = out.filter((r) => (listingFeatured === "YES" ? !!r?.featured : !r?.featured));
     }
 
     if (tab === "payments") {
@@ -265,11 +248,10 @@ function ReportsInner() {
     }
 
     if (tab === "subscriptions") {
-      // heuristic: look for end/expiry fields
       if (subState !== "ALL") {
         out = out.filter((r) => {
           const endRaw = r?.endsAt ?? r?.endAt ?? r?.expiresAt;
-          if (!endRaw) return subState === "ACTIVE"; // if unknown, treat as active-ish
+          if (!endRaw) return subState === "ACTIVE";
           const end = new Date(endRaw);
           if (Number.isNaN(end.getTime())) return subState === "ACTIVE";
           const active = end.getTime() >= Date.now();
@@ -300,17 +282,14 @@ function ReportsInner() {
   ]);
 
   const columns = useMemo(() => {
-    // choose a stable set of columns: most common keys across visible rows
     const counts = new Map<string, number>();
     for (const r of visibleRows.slice(0, 300)) {
-      for (const k of Object.keys(r || {})) {
-        counts.set(k, (counts.get(k) || 0) + 1);
-      }
+      for (const k of Object.keys(r || {})) counts.set(k, (counts.get(k) || 0) + 1);
     }
     return Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1])
       .map(([k]) => k)
-      .slice(0, 12); // keep it readable
+      .slice(0, 12);
   }, [visibleRows]);
 
   function renderCell(v: any) {
@@ -318,11 +297,9 @@ function ReportsInner() {
     if (typeof v === "boolean") return v ? <Badge>Yes</Badge> : <Badge variant="secondary">No</Badge>;
     if (typeof v === "number") return v.toLocaleString();
     if (typeof v === "string") {
-      // show date-ish strings nicely
       if (/^\d{4}-\d{2}-\d{2}T/.test(v)) return new Date(v).toLocaleString();
       return v;
     }
-    // objects/arrays
     try {
       const s = JSON.stringify(v);
       return s.length > 80 ? s.slice(0, 77) + "…" : s;
@@ -344,14 +321,24 @@ function ReportsInner() {
     downloadBlob(csv, `${base}.csv`, "text/csv;charset=utf-8");
   }
 
+  const jsonLink = useMemo(() => {
+    return joinUrl(
+      API_BASE,
+      `/admin/exports/${tab}${buildQuery({
+        format: "json",
+        from: from || undefined,
+        to: to || undefined,
+        q: q.trim() || undefined,
+      })}`
+    );
+  }, [tab, from, to, q]);
+
   return (
     <section className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold">Reports</h1>
-          <p className="text-sm text-gray-600">
-            Tabs + live table. Export downloads only what you’re currently seeing.
-          </p>
+          <p className="text-sm text-gray-600">Tabs + live table. Export downloads only what you’re currently seeing.</p>
         </div>
 
         <div className="flex gap-2">
@@ -396,11 +383,7 @@ function ReportsInner() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <Label>Status</Label>
-                  <select
-                    value={userStatus}
-                    onChange={(e) => setUserStatus(e.target.value as any)}
-                    className="w-full rounded-md border px-3 py-2"
-                  >
+                  <select value={userStatus} onChange={(e) => setUserStatus(e.target.value as any)} className="w-full rounded-md border px-3 py-2">
                     <option value="ALL">All</option>
                     <option value="ACTIVE">Active</option>
                     <option value="INACTIVE">Inactive</option>
@@ -410,11 +393,7 @@ function ReportsInner() {
 
                 <div>
                   <Label>Role</Label>
-                  <select
-                    value={userRole}
-                    onChange={(e) => setUserRole(e.target.value)}
-                    className="w-full rounded-md border px-3 py-2"
-                  >
+                  <select value={userRole} onChange={(e) => setUserRole(e.target.value)} className="w-full rounded-md border px-3 py-2">
                     <option value="ALL">All</option>
                     {userRoles.map((r) => (
                       <option key={r} value={r}>
@@ -425,7 +404,16 @@ function ReportsInner() {
                 </div>
 
                 <div className="flex items-end">
-                  <Button variant="outline" onClick={() => { setFrom(""); setTo(""); setQ(""); setUserStatus("ALL"); setUserRole("ALL"); }}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setFrom("");
+                      setTo("");
+                      setQ("");
+                      setUserStatus("ALL");
+                      setUserRole("ALL");
+                    }}
+                  >
                     Clear filters
                   </Button>
                 </div>
@@ -436,11 +424,7 @@ function ReportsInner() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <Label>Status</Label>
-                  <select
-                    value={listingStatus}
-                    onChange={(e) => setListingStatus(e.target.value)}
-                    className="w-full rounded-md border px-3 py-2"
-                  >
+                  <select value={listingStatus} onChange={(e) => setListingStatus(e.target.value)} className="w-full rounded-md border px-3 py-2">
                     <option value="ALL">All</option>
                     {listingStatuses.map((s) => (
                       <option key={s} value={s}>
@@ -452,11 +436,7 @@ function ReportsInner() {
 
                 <div>
                   <Label>Featured</Label>
-                  <select
-                    value={listingFeatured}
-                    onChange={(e) => setListingFeatured(e.target.value as any)}
-                    className="w-full rounded-md border px-3 py-2"
-                  >
+                  <select value={listingFeatured} onChange={(e) => setListingFeatured(e.target.value as any)} className="w-full rounded-md border px-3 py-2">
                     <option value="ALL">All</option>
                     <option value="YES">Featured</option>
                     <option value="NO">Not featured</option>
@@ -464,7 +444,16 @@ function ReportsInner() {
                 </div>
 
                 <div className="flex items-end">
-                  <Button variant="outline" onClick={() => { setFrom(""); setTo(""); setQ(""); setListingStatus("ALL"); setListingFeatured("ALL"); }}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setFrom("");
+                      setTo("");
+                      setQ("");
+                      setListingStatus("ALL");
+                      setListingFeatured("ALL");
+                    }}
+                  >
                     Clear filters
                   </Button>
                 </div>
@@ -475,11 +464,7 @@ function ReportsInner() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <Label>Status</Label>
-                  <select
-                    value={paymentStatus}
-                    onChange={(e) => setPaymentStatus(e.target.value)}
-                    className="w-full rounded-md border px-3 py-2"
-                  >
+                  <select value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)} className="w-full rounded-md border px-3 py-2">
                     <option value="ALL">All</option>
                     {paymentStatuses.map((s) => (
                       <option key={s} value={s}>
@@ -491,11 +476,7 @@ function ReportsInner() {
 
                 <div>
                   <Label>Provider</Label>
-                  <select
-                    value={paymentProvider}
-                    onChange={(e) => setPaymentProvider(e.target.value)}
-                    className="w-full rounded-md border px-3 py-2"
-                  >
+                  <select value={paymentProvider} onChange={(e) => setPaymentProvider(e.target.value)} className="w-full rounded-md border px-3 py-2">
                     <option value="ALL">All</option>
                     {paymentProviders.map((p) => (
                       <option key={p} value={p}>
@@ -506,7 +487,16 @@ function ReportsInner() {
                 </div>
 
                 <div className="flex items-end">
-                  <Button variant="outline" onClick={() => { setFrom(""); setTo(""); setQ(""); setPaymentStatus("ALL"); setPaymentProvider("ALL"); }}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setFrom("");
+                      setTo("");
+                      setQ("");
+                      setPaymentStatus("ALL");
+                      setPaymentProvider("ALL");
+                    }}
+                  >
                     Clear filters
                   </Button>
                 </div>
@@ -517,11 +507,7 @@ function ReportsInner() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <Label>State</Label>
-                  <select
-                    value={subState}
-                    onChange={(e) => setSubState(e.target.value as any)}
-                    className="w-full rounded-md border px-3 py-2"
-                  >
+                  <select value={subState} onChange={(e) => setSubState(e.target.value as any)} className="w-full rounded-md border px-3 py-2">
                     <option value="ALL">All</option>
                     <option value="ACTIVE">Active</option>
                     <option value="EXPIRED">Expired</option>
@@ -530,7 +516,15 @@ function ReportsInner() {
                 </div>
 
                 <div className="flex items-end">
-                  <Button variant="outline" onClick={() => { setFrom(""); setTo(""); setQ(""); setSubState("ALL"); }}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setFrom("");
+                      setTo("");
+                      setQ("");
+                      setSubState("ALL");
+                    }}
+                  >
                     Clear filters
                   </Button>
                 </div>
@@ -541,11 +535,7 @@ function ReportsInner() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <Label>Action</Label>
-                  <select
-                    value={auditAction}
-                    onChange={(e) => setAuditAction(e.target.value)}
-                    className="w-full rounded-md border px-3 py-2"
-                  >
+                  <select value={auditAction} onChange={(e) => setAuditAction(e.target.value)} className="w-full rounded-md border px-3 py-2">
                     <option value="ALL">All</option>
                     {auditActions.map((a) => (
                       <option key={a} value={a}>
@@ -556,7 +546,15 @@ function ReportsInner() {
                 </div>
 
                 <div className="flex items-end">
-                  <Button variant="outline" onClick={() => { setFrom(""); setTo(""); setQ(""); setAuditAction("ALL"); }}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setFrom("");
+                      setTo("");
+                      setQ("");
+                      setAuditAction("ALL");
+                    }}
+                  >
                     Clear filters
                   </Button>
                 </div>
@@ -582,19 +580,7 @@ function ReportsInner() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() =>
-                      navigator.clipboard.writeText(
-                        `${API_BASE}/api/admin/exports/${tab}${buildQuery({
-                          format: "json",
-                          from: from || undefined,
-                          to: to || undefined,
-                          q: q.trim() || undefined,
-                        })}`
-                      )
-                    }
-                  >
+                  <Button variant="outline" onClick={() => navigator.clipboard.writeText(jsonLink)}>
                     Copy JSON link
                   </Button>
                 </div>

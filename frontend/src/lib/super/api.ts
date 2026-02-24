@@ -5,6 +5,30 @@ import { getToken, getJwtPayload } from "./auth";
 export type Permission = string;
 
 /**
+ * Safely joins a base URL and a path without double slashes.
+ */
+function joinUrl(base: string, path: string) {
+  const b = (base || "").replace(/\/+$/, "");
+  const p = (path || "").startsWith("/") ? path : `/${path}`;
+  return `${b}${p}`;
+}
+
+/**
+ * Normalizes accidental `/api/api` duplication.
+ * This happens when API_BASE already ends with `/api` and callers pass paths starting with `/api/...`.
+ */
+function normalizeApiUrl(base: string, path: string) {
+  let url = joinUrl(base, path);
+
+  // Replace /api/api and keep trailing slash or query string intact
+  url = url.replace(/\/api\/api(\/|\?)/g, "/api$1");
+  // Also handle an exact ending /api/api (no trailing slash)
+  url = url.replace(/\/api\/api$/g, "/api");
+
+  return url;
+}
+
+/**
  * Super-admin UI fetch helper.
  * API_BASE already includes `/api` (standardized in @/lib/api)
  */
@@ -16,7 +40,9 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const url = normalizeApiUrl(API_BASE, path);
+
+  const res = await fetch(url, {
     ...init,
     headers,
     cache: "no-store",

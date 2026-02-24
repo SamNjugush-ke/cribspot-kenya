@@ -33,9 +33,11 @@ import {
   User,
 } from "lucide-react";
 
-type MeResp = { user?: { id: string; name?: string | null; email: string; role?: string } };
+type StoredUser = { id: string; name?: string | null; email: string; role?: string };
+type MeResp = { user?: StoredUser };
 
 const AUTH_EVENT = "rk:auth";
+const USER_KEY = "rk_user";
 
 function safeJson<T>(raw: string | null): T | null {
   if (!raw) return null;
@@ -51,8 +53,7 @@ function token() {
   return localStorage.getItem("rk_token");
 }
 
-function authHeaders(): HeadersInit {
-  const t = token();
+function authHeaders(t?: string | null): HeadersInit {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
@@ -79,22 +80,13 @@ function titleFromPath(pathname: string) {
   const parts = pathname.split("/").filter(Boolean);
   const last = parts[parts.length - 1] || "dashboard";
   const nice = last.replace(/-/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
-  if (
-    last === "super" ||
-    last === "admin" ||
-    last === "lister" ||
-    last === "renter" ||
-    last === "agent" ||
-    last === "editor"
-  ) {
-    return "Overview";
-  }
+  if (["super", "admin", "lister", "renter", "agent", "editor"].includes(last)) return "Overview";
   return nice;
 }
 
 function notifyAuthChanged() {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new Event(AUTH_EVENT)); // same-tab listeners (Header/AuthBootstrap)
+  window.dispatchEvent(new Event(AUTH_EVENT));
 }
 
 function clearAllAuth() {
@@ -102,13 +94,12 @@ function clearAllAuth() {
 
   // core auth
   localStorage.removeItem("rk_token");
-  localStorage.removeItem("rk_user");
+  localStorage.removeItem(USER_KEY);
 
   // impersonation (both conventions)
   localStorage.removeItem("rk_token_impersonator");
   localStorage.removeItem("rk_impersonated_user");
   localStorage.removeItem("rk_impersonator_user");
-
   localStorage.removeItem("rk_impersonator_token");
   localStorage.removeItem("rk_impersonating");
 
@@ -131,13 +122,12 @@ export default function DashboardHeader({
   const router = useRouter();
   const pathname = usePathname();
 
-  const [me, setMe] = useState<MeResp["user"] | null>(null);
+  const [me, setMe] = useState<StoredUser | null>(null);
   const [loadingMe, setLoadingMe] = useState(true);
   const [q, setQ] = useState("");
 
-  // impersonation storage convention:
-  // rk_token_impersonator -> original token
-  // rk_impersonated_user, rk_impersonator_user -> metadata
+  // track token + impersonation token reactively (avoid reading localStorage in deps)
+  const [tokenState, setTokenState] = useState<string | null>(null);
   const [impersonatorToken, setImpersonatorToken] = useState<string | null>(null);
 
   const impersonatedUser = useMemo(
@@ -160,17 +150,26 @@ export default function DashboardHeader({
 
   const isImpersonating = !!impersonatorToken;
 
-  // Keep banner state fresh on route changes AND auth changes (same tab)
+  // Keep token + banner state fresh (same tab + storage events)
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const sync = () => setImpersonatorToken(localStorage.getItem("rk_token_impersonator"));
+    const sync = () => {
+      setTokenState(localStorage.getItem("rk_token"));
+      setImpersonatorToken(localStorage.getItem("rk_token_impersonator"));
+    };
 
     sync();
 
     const onAuth = () => sync();
     const onStorage = (e: StorageEvent) => {
-      if (e.key === "rk_token" || e.key === "rk_token_impersonator") sync();
+      if (
+        e.key === "rk_token" ||
+        e.key === "rk_token_impersonator" ||
+        e.key === USER_KEY
+      ) {
+        sync();
+      }
     };
 
     window.addEventListener(AUTH_EVENT, onAuth as any);
@@ -182,23 +181,64 @@ export default function DashboardHeader({
     };
   }, [pathname]);
 
-  // Load /me when token changes or path changes.
-  // NOTE: previously depended only on pathname; during logout it could still show old me until refresh.
+  // Load /me when token changes or route changes.
+  // ✅ IMPORTANT FIX: API_BASE already includes "/api", so DO NOT call `${API_BASE}/api/...`
   useEffect(() => {
+    let alive = true;
+
+    const hydrateFromStorage = () => {
+      const stored = safeJson<StoredUser>(typeof window !== "undefined" ? localStorage.getItem(USER_KEY) : null);
+      if (alive && stored?.email) setMe(stored);
+    };
+
     (async () => {
       try {
         setLoadingMe(true);
-        const res = await fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders() });
+
+        // no token? just show storage fallback (if any) then stop
+        if (!tokenState) {
+          setMe(null);
+          hydrateFromStorage();
+          return;
+        }
+
+        const res = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders(tokenState) });
+        if (!res.ok) {
+          // token may be stale; fallback to storage so UI isn't blank
+          hydrateFromStorage();
+          return;
+        }
+
         const json = (await res.json().catch(() => null)) as MeResp | null;
-        setMe(json?.user ?? null);
+        if (!alive) return;
+
+        const user = json?.user ?? null;
+
+        // Some older payloads had name missing; fallback to stored rk_user for display name
+        if (user?.email) {
+          if (!user.name) {
+            const stored = safeJson<StoredUser>(typeof window !== "undefined" ? localStorage.getItem(USER_KEY) : null);
+            setMe({ ...user, name: user.name ?? stored?.name ?? null });
+          } else {
+            setMe(user);
+          }
+        } else {
+          setMe(null);
+          hydrateFromStorage();
+        }
       } catch {
+        if (!alive) return;
         setMe(null);
+        hydrateFromStorage();
       } finally {
-        setLoadingMe(false);
+        if (alive) setLoadingMe(false);
       }
     })();
-    // include token in deps so clearing token refreshes instantly
-  }, [pathname, typeof window !== "undefined" ? localStorage.getItem("rk_token") : ""]);
+
+    return () => {
+      alive = false;
+    };
+  }, [pathname, tokenState]);
 
   const computedTitle = title || titleFromPath(pathname || "/dashboard");
   const computedSubtitle =
@@ -212,13 +252,8 @@ export default function DashboardHeader({
   const doLogout = () => {
     if (typeof window === "undefined") return;
 
-    // Clear everything
     clearAllAuth();
-
-    // Instant UI sync for Header + any listeners on same tab
     notifyAuthChanged();
-
-    // Navigate to login. No need to router.refresh(); it can keep stale client state briefly.
     router.replace("/login");
   };
 
@@ -227,25 +262,17 @@ export default function DashboardHeader({
     const original = localStorage.getItem("rk_token_impersonator");
     if (!original) return;
 
-    // restore token
     localStorage.setItem("rk_token", original);
 
-    // clear impersonation keys
     localStorage.removeItem("rk_token_impersonator");
     localStorage.removeItem("rk_impersonated_user");
     localStorage.removeItem("rk_impersonator_user");
-
-    // also clear alternate keys
     localStorage.removeItem("rk_impersonator_token");
     localStorage.removeItem("rk_impersonating");
 
-    // force re-hydration of /me everywhere
-    localStorage.removeItem("rk_user");
-
-    // notify same-tab listeners (header/banner should flip instantly)
+    localStorage.removeItem(USER_KEY);
     notifyAuthChanged();
 
-    // hard reload to reset role-based nav and caches cleanly
     window.location.href = roleHome("SUPER_ADMIN");
   };
 
@@ -258,9 +285,7 @@ export default function DashboardHeader({
       onQuickSearch(needle);
     } else {
       if (role === "SUPER_ADMIN" || role === "ADMIN") {
-        router.push(
-          `/dashboard/${role === "SUPER_ADMIN" ? "super" : "admin"}/users?q=${encodeURIComponent(needle)}`
-        );
+        router.push(`/dashboard/${role === "SUPER_ADMIN" ? "super" : "admin"}/users?q=${encodeURIComponent(needle)}`);
       } else {
         router.push(`/dashboard/messages`);
       }
@@ -340,7 +365,7 @@ export default function DashboardHeader({
               <Button className="rounded-xl2 bg-brand-blue text-white hover:bg-brand-sky">
                 <User className="h-4 w-4 mr-2" />
                 <span className="max-w-[120px] truncate">
-                  {loadingMe ? "Loading…" : me ? (me.name || me.email || "Account") : "Account"}
+                  {loadingMe ? "Loading…" : me ? me.name || me.email || "Account" : "Account"}
                 </span>
                 <ChevronDown className="h-4 w-4 ml-2 opacity-90" />
               </Button>

@@ -1,18 +1,18 @@
-// src/app/dashboard/super/users/page.tsx
-'use client';
+// frontend/src/app/dashboard/super/users/page.tsx
+"use client";
 
-import { useEffect, useMemo, useState } from 'react';
-import Guard from '@/components/auth/Guard';
-import { apiFetch } from '@/lib/apiClient';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import React, { useEffect, useMemo, useState } from "react";
+import Guard from "@/components/auth/Guard";
+import { apiFetch } from "@/lib/apiClient";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -20,9 +20,9 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
+} from "@/components/ui/table";
 
-type Role = 'SUPER_ADMIN' | 'ADMIN' | 'LISTER' | 'RENTER' | 'AGENT' | 'EDITOR';
+type Role = "SUPER_ADMIN" | "ADMIN" | "LISTER" | "RENTER" | "AGENT" | "EDITOR";
 
 type UserRow = {
   id: string;
@@ -33,21 +33,21 @@ type UserRow = {
   createdAt?: string;
 };
 
-const ROLES: Role[] = ['SUPER_ADMIN', 'ADMIN', 'LISTER', 'RENTER', 'AGENT', 'EDITOR'];
+const ROLES: Role[] = ["SUPER_ADMIN", "ADMIN", "LISTER", "RENTER", "AGENT", "EDITOR"];
 
 function clearImpersonationKeys() {
   // Support both conventions used across the project
-  localStorage.removeItem('rk_token_impersonator');
-  localStorage.removeItem('rk_impersonator_user');
-  localStorage.removeItem('rk_impersonated_user');
+  localStorage.removeItem("rk_token_impersonator");
+  localStorage.removeItem("rk_impersonator_user");
+  localStorage.removeItem("rk_impersonated_user");
 
-  localStorage.removeItem('rk_impersonator_token');
-  localStorage.removeItem('rk_impersonating');
+  localStorage.removeItem("rk_impersonator_token");
+  localStorage.removeItem("rk_impersonating");
 }
 
 export default function UsersPage() {
   return (
-    <Guard allowed={['SUPER_ADMIN']}>
+    <Guard allowed={["SUPER_ADMIN"]}>
       <UsersInner />
     </Guard>
   );
@@ -58,25 +58,35 @@ function UsersInner() {
   const [loading, setLoading] = useState(true);
 
   // filters
-  const [q, setQ] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'ALL' | Role>('ALL');
-  const [banFilter, setBanFilter] = useState<'ALL' | 'BANNED' | 'ACTIVE'>('ALL');
+  const [q, setQ] = useState("");
+  const [roleFilter, setRoleFilter] = useState<"ALL" | Role>("ALL");
+  const [banFilter, setBanFilter] = useState<"ALL" | "BANNED" | "ACTIVE">("ALL");
 
   // create modal
   const [createOpen, setCreateOpen] = useState(false);
-  const [cName, setCName] = useState('');
-  const [cEmail, setCEmail] = useState('');
-  const [cRole, setCRole] = useState<Role>('LISTER');
-  const [cPassword, setCPassword] = useState('');
+  const [cName, setCName] = useState("");
+  const [cEmail, setCEmail] = useState("");
+  const [cRole, setCRole] = useState<Role>("LISTER");
+  const [cPassword, setCPassword] = useState("");
 
   // confirm modal (ban / impersonate / role change)
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [confirmTitle, setConfirmTitle] = useState('');
+  const [confirmTitle, setConfirmTitle] = useState("");
   const [confirmBody, setConfirmBody] = useState<React.ReactNode>(null);
-  const [confirmReason, setConfirmReason] = useState('');
+  const [confirmReason, setConfirmReason] = useState("");
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmAction, setConfirmAction] = useState<null | (() => Promise<void>)>(null);
-  const [confirmReasonPlaceholder, setConfirmReasonPlaceholder] = useState('Short reason (logged/audited)');
+  const [confirmReasonPlaceholder, setConfirmReasonPlaceholder] = useState(
+    "Short reason (logged/audited)"
+  );
+
+  // reset password modal
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetUser, setResetUser] = useState<UserRow | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetPassword2, setResetPassword2] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetReveal, setResetReveal] = useState(false);
 
   useEffect(() => {
     load();
@@ -85,12 +95,12 @@ function UsersInner() {
   async function load() {
     try {
       setLoading(true);
-      const json = await apiFetch<any>('/api/admin/users');
-      const arr: UserRow[] = Array.isArray(json) ? json : (json?.items || json?.users || []);
+      const json = await apiFetch<any>("/api/admin/users");
+      const arr: UserRow[] = Array.isArray(json) ? json : json?.items || json?.users || [];
       setItems(arr);
     } catch (e: any) {
       console.error(e);
-      alert(e?.message || 'Failed to load users');
+      alert(e?.message || "Failed to load users");
       setItems([]);
     } finally {
       setLoading(false);
@@ -100,14 +110,11 @@ function UsersInner() {
   const displayed = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return items.filter((u) => {
-      const text = `${u.name ?? ''} ${u.email} ${u.role}`.toLowerCase();
+      const text = `${u.name ?? ""} ${u.email} ${u.role}`.toLowerCase();
       const okQ = !needle || text.includes(needle);
-      const okRole = roleFilter === 'ALL' || u.role === roleFilter;
+      const okRole = roleFilter === "ALL" || u.role === roleFilter;
       const banned = !!u.isBanned;
-      const okBan =
-        banFilter === 'ALL' ||
-        (banFilter === 'BANNED' ? banned : !banned);
-
+      const okBan = banFilter === "ALL" || (banFilter === "BANNED" ? banned : !banned);
       return okQ && okRole && okBan;
     });
   }, [items, q, roleFilter, banFilter]);
@@ -121,8 +128,8 @@ function UsersInner() {
     setConfirmTitle(opts.title);
     setConfirmBody(opts.body ?? null);
     setConfirmAction(() => opts.action);
-    setConfirmReason('');
-    setConfirmReasonPlaceholder(opts.reasonPlaceholder || 'Short reason (logged/audited)');
+    setConfirmReason("");
+    setConfirmReasonPlaceholder(opts.reasonPlaceholder || "Short reason (logged/audited)");
     setConfirmOpen(true);
   }
 
@@ -134,7 +141,7 @@ function UsersInner() {
       setConfirmOpen(false);
     } catch (e: any) {
       console.error(e);
-      alert(e?.message || 'Action failed');
+      alert(e?.message || "Action failed");
     } finally {
       setConfirmBusy(false);
     }
@@ -146,47 +153,47 @@ function UsersInner() {
     const password = cPassword;
 
     if (!email || !password) {
-      alert('Email + password are required');
+      alert("Email + password are required");
       return;
     }
 
     try {
-      await apiFetch('/api/admin/users', {
-        method: 'POST',
+      await apiFetch("/api/admin/users", {
+        method: "POST",
         body: JSON.stringify({ name: name || undefined, email, role: cRole, password }),
       });
       setCreateOpen(false);
-      setCName('');
-      setCEmail('');
-      setCRole('LISTER');
-      setCPassword('');
+      setCName("");
+      setCEmail("");
+      setCRole("LISTER");
+      setCPassword("");
       await load();
     } catch (e: any) {
       console.error(e);
-      alert(e?.message || 'Failed to create user');
+      alert(e?.message || "Failed to create user");
     }
   }
 
   function askToggleBan(u: UserRow) {
     const next = !u.isBanned;
     openConfirm({
-      title: next ? 'Ban user' : 'Unban user',
+      title: next ? "Ban user" : "Unban user",
       body: (
         <div className="text-sm text-gray-700 space-y-1">
           <div>
             <b>{u.email}</b>
           </div>
-          <div>{next ? 'They will be blocked from using the platform.' : 'They will regain access.'}</div>
+          <div>{next ? "They will be blocked from using the platform." : "They will regain access."}</div>
         </div>
       ),
       action: async () => {
         await apiFetch(`/api/admin/users/${u.id}/ban`, {
-          method: 'PATCH',
+          method: "PATCH",
           body: JSON.stringify({ reason: confirmReason || undefined }),
         });
         await load();
       },
-      reasonPlaceholder: next ? 'Reason for ban (recommended)' : 'Reason (optional)',
+      reasonPlaceholder: next ? "Reason for ban (recommended)" : "Reason (optional)",
     });
   }
 
@@ -194,7 +201,7 @@ function UsersInner() {
     if (nextRole === u.role) return;
 
     openConfirm({
-      title: 'Change user role',
+      title: "Change user role",
       body: (
         <div className="text-sm text-gray-700 space-y-1">
           <div>
@@ -207,18 +214,72 @@ function UsersInner() {
       ),
       action: async () => {
         await apiFetch(`/api/admin/users/${u.id}/role`, {
-          method: 'PATCH',
+          method: "PATCH",
           body: JSON.stringify({ role: nextRole, reason: confirmReason || undefined }),
         });
         await load();
       },
-      reasonPlaceholder: 'Reason (recommended)',
+      reasonPlaceholder: "Reason (recommended)",
     });
+  }
+
+  function askResetPassword(u: UserRow) {
+    setResetUser(u);
+    setResetPassword("");
+    setResetPassword2("");
+    setResetReveal(false);
+    setConfirmReason("");
+    setResetOpen(true);
+  }
+
+  async function doResetPassword() {
+    if (!resetUser) return;
+
+    const p1 = resetPassword;
+    const p2 = resetPassword2;
+
+    if (!p1 || p1.length < 6) {
+      alert("Password must be at least 6 characters");
+      return;
+    }
+    if (p1 !== p2) {
+      alert("Passwords do not match");
+      return;
+    }
+
+    try {
+      setResetBusy(true);
+
+      // ✅ assumes you added PATCH /api/admin/users/:id/password
+      await apiFetch(`/api/admin/users/${resetUser.id}/password`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          newPassword: p1,
+          reason: confirmReason || undefined,
+        }),
+      });
+
+      setResetOpen(false);
+      setResetUser(null);
+      setResetPassword("");
+      setResetPassword2("");
+      setConfirmReason("");
+
+      // Optional: refresh list (not strictly necessary, but keeps UI consistent)
+      await load();
+
+      alert("Password reset successfully.");
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message || "Failed to reset password");
+    } finally {
+      setResetBusy(false);
+    }
   }
 
   function askImpersonate(u: UserRow) {
     openConfirm({
-      title: 'Impersonate user',
+      title: "Impersonate user",
       body: (
         <div className="text-sm text-gray-700 space-y-2">
           <div>
@@ -231,84 +292,81 @@ function UsersInner() {
       ),
       action: async () => {
         const res = await apiFetch<{ token: string }>(`/api/admin/users/${u.id}/impersonate`, {
-          method: 'POST',
+          method: "POST",
           body: JSON.stringify({ reason: confirmReason || undefined }),
         });
 
-        if (!res?.token) throw new Error('No token returned from impersonation');
+        if (!res?.token) throw new Error("No token returned from impersonation");
 
         // 1) Preserve original token (impersonator) if not already stored
-        const currentToken = localStorage.getItem('rk_token');
+        const currentToken = localStorage.getItem("rk_token");
         if (currentToken) {
           // If already impersonating, we don't overwrite the original; keep the first one.
-          if (!localStorage.getItem('rk_token_impersonator') && !localStorage.getItem('rk_impersonator_token')) {
-            localStorage.setItem('rk_token_impersonator', currentToken);
-            localStorage.setItem('rk_impersonator_token', currentToken);
+          if (!localStorage.getItem("rk_token_impersonator") && !localStorage.getItem("rk_impersonator_token")) {
+            localStorage.setItem("rk_token_impersonator", currentToken);
+            localStorage.setItem("rk_impersonator_token", currentToken);
           }
         }
 
         // 2) Preserve impersonator identity (best-effort)
-        const rawMe = localStorage.getItem('rk_user');
+        const rawMe = localStorage.getItem("rk_user");
         if (rawMe) {
-          if (!localStorage.getItem('rk_impersonator_user')) localStorage.setItem('rk_impersonator_user', rawMe);
-          localStorage.setItem('rk_impersonating', '1');
+          if (!localStorage.getItem("rk_impersonator_user")) localStorage.setItem("rk_impersonator_user", rawMe);
+          localStorage.setItem("rk_impersonating", "1");
         }
 
         // 3) Store impersonated identity (best-effort for UI/banner)
         localStorage.setItem(
-          'rk_impersonated_user',
+          "rk_impersonated_user",
           JSON.stringify({ id: u.id, email: u.email, name: u.name, role: u.role })
         );
 
         // 4) Swap token -> now you are impersonated
-        localStorage.setItem('rk_token', res.token);
+        localStorage.setItem("rk_token", res.token);
 
         // 5) Force re-hydration of /me (your AuthBootstrap will repopulate rk_user)
-        localStorage.removeItem('rk_user');
+        localStorage.removeItem("rk_user");
 
         // 6) Activity baseline (avoid immediate idle logout)
-        localStorage.setItem('rk_last_activity', String(Date.now()));
+        localStorage.setItem("rk_last_activity", String(Date.now()));
 
         // 7) Go to dashboard; header will show impersonation banner via rk_token_impersonator
-        window.location.href = '/dashboard';
+        window.location.href = "/dashboard";
       },
-      reasonPlaceholder: 'Reason for impersonation (recommended)',
+      reasonPlaceholder: "Reason for impersonation (recommended)",
     });
   }
 
   function askStopImpersonation() {
-    // Optional helper if you ever want a stop button here too
     openConfirm({
-      title: 'Stop impersonating',
+      title: "Stop impersonating",
       body: (
         <div className="text-sm text-gray-700 space-y-2">
           <div>You’re about to revert back to your original account.</div>
         </div>
       ),
       action: async () => {
-        const original =
-          localStorage.getItem('rk_token_impersonator') ||
-          localStorage.getItem('rk_impersonator_token');
+        const original = localStorage.getItem("rk_token_impersonator") || localStorage.getItem("rk_impersonator_token");
 
         if (!original) {
           clearImpersonationKeys();
-          alert('No original token found (you may not be impersonating).');
+          alert("No original token found (you may not be impersonating).");
           return;
         }
 
-        localStorage.setItem('rk_token', original);
-        localStorage.removeItem('rk_user');
+        localStorage.setItem("rk_token", original);
+        localStorage.removeItem("rk_user");
         clearImpersonationKeys();
-        localStorage.setItem('rk_last_activity', String(Date.now()));
-        window.location.href = '/dashboard';
+        localStorage.setItem("rk_last_activity", String(Date.now()));
+        window.location.href = "/dashboard";
       },
-      reasonPlaceholder: 'Reason (optional)',
+      reasonPlaceholder: "Reason (optional)",
     });
   }
 
   const isImpersonating = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return !!(localStorage.getItem('rk_token_impersonator') || localStorage.getItem('rk_impersonator_token'));
+    if (typeof window === "undefined") return false;
+    return !!(localStorage.getItem("rk_token_impersonator") || localStorage.getItem("rk_impersonator_token"));
   }, []);
 
   return (
@@ -316,9 +374,7 @@ function UsersInner() {
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold">Users</h1>
-          <div className="text-sm text-gray-600">
-            {loading ? 'Loading…' : `Total: ${items.length}`}
-          </div>
+          <div className="text-sm text-gray-600">{loading ? "Loading…" : `Total: ${items.length}`}</div>
         </div>
 
         <div className="flex gap-2 flex-wrap">
@@ -347,11 +403,7 @@ function UsersInner() {
           onChange={(e) => setQ(e.target.value)}
         />
 
-        <select
-          className="border rounded px-2 py-2"
-          value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value as any)}
-        >
+        <select className="border rounded px-2 py-2" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as any)}>
           <option value="ALL">All roles</option>
           {ROLES.map((r) => (
             <option key={r} value={r}>
@@ -360,11 +412,7 @@ function UsersInner() {
           ))}
         </select>
 
-        <select
-          className="border rounded px-2 py-2"
-          value={banFilter}
-          onChange={(e) => setBanFilter(e.target.value as any)}
-        >
+        <select className="border rounded px-2 py-2" value={banFilter} onChange={(e) => setBanFilter(e.target.value as any)}>
           <option value="ALL">All</option>
           <option value="ACTIVE">Active</option>
           <option value="BANNED">Banned</option>
@@ -395,7 +443,7 @@ function UsersInner() {
               <>
                 {displayed.map((u) => (
                   <TableRow key={u.id}>
-                    <TableCell>{u.name || '—'}</TableCell>
+                    <TableCell>{u.name || "—"}</TableCell>
                     <TableCell className="font-medium">{u.email}</TableCell>
 
                     <TableCell>
@@ -426,6 +474,10 @@ function UsersInner() {
 
                     <TableCell>
                       <div className="flex justify-end gap-2 flex-wrap">
+                        <Button size="sm" variant="outline" onClick={() => askResetPassword(u)}>
+                          Reset Password
+                        </Button>
+
                         <Button size="sm" variant="outline" onClick={() => askImpersonate(u)}>
                           Impersonate
                         </Button>
@@ -433,10 +485,10 @@ function UsersInner() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className={u.isBanned ? 'border-green-300 text-green-700' : 'border-red-300 text-red-700'}
+                          className={u.isBanned ? "border-green-300 text-green-700" : "border-red-300 text-red-700"}
                           onClick={() => askToggleBan(u)}
                         >
-                          {u.isBanned ? 'Unban' : 'Ban'}
+                          {u.isBanned ? "Unban" : "Ban"}
                         </Button>
                       </div>
                     </TableCell>
@@ -473,11 +525,7 @@ function UsersInner() {
             </div>
 
             <div>
-              <select
-                className="border rounded px-2 py-2 w-full"
-                value={cRole}
-                onChange={(e) => setCRole(e.target.value as Role)}
-              >
+              <select className="border rounded px-2 py-2 w-full" value={cRole} onChange={(e) => setCRole(e.target.value as Role)}>
                 {ROLES.map((r) => (
                   <option key={r} value={r}>
                     {r}
@@ -488,12 +536,7 @@ function UsersInner() {
             </div>
 
             <div>
-              <Input
-                placeholder="Password"
-                type="password"
-                value={cPassword}
-                onChange={(e) => setCPassword(e.target.value)}
-              />
+              <Input placeholder="Password" type="password" value={cPassword} onChange={(e) => setCPassword(e.target.value)} />
               <div className="text-xs text-gray-500 mt-1">Temporary password</div>
             </div>
           </div>
@@ -504,6 +547,92 @@ function UsersInner() {
             </Button>
             <Button className="bg-brand-blue text-white" onClick={createUser}>
               Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset password dialog */}
+      <Dialog
+        open={resetOpen}
+        onOpenChange={(open) => {
+          setResetOpen(open);
+          if (!open) {
+            setResetUser(null);
+            setResetPassword("");
+            setResetPassword2("");
+            setConfirmReason("");
+            setResetReveal(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Reset password</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="text-sm text-gray-700">
+              Resetting password for: <b>{resetUser?.email}</b>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-gray-700">New password</div>
+              <Input
+                type={resetReveal ? "text" : "password"}
+                placeholder="New temporary password"
+                value={resetPassword}
+                onChange={(e) => setResetPassword(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-gray-700">Confirm new password</div>
+              <Input
+                type={resetReveal ? "text" : "password"}
+                placeholder="Re-enter password"
+                value={resetPassword2}
+                onChange={(e) => setResetPassword2(e.target.value)}
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                id="reveal_pw"
+                type="checkbox"
+                className="h-4 w-4"
+                checked={resetReveal}
+                onChange={(e) => setResetReveal(e.target.checked)}
+              />
+              <label htmlFor="reveal_pw" className="text-sm text-gray-700">
+                Show password
+              </label>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-gray-700">Reason</div>
+              <Input
+                placeholder="Reason (recommended)"
+                value={confirmReason}
+                onChange={(e) => setConfirmReason(e.target.value)}
+              />
+              <div className="text-xs text-gray-500">
+                Tip: “User forgot password” is a classic.
+              </div>
+            </div>
+
+            <div className="rounded-md border bg-amber-50 p-3 text-sm text-amber-900">
+              This sets a <b>temporary</b> password. Tell the user to log in and change it immediately.
+            
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetOpen(false)} disabled={resetBusy}>
+              Cancel
+            </Button>
+            <Button className="bg-brand-blue text-white" onClick={doResetPassword} disabled={resetBusy}>
+              {resetBusy ? "Resetting…" : "Reset Password"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -525,9 +654,7 @@ function UsersInner() {
               value={confirmReason}
               onChange={(e) => setConfirmReason(e.target.value)}
             />
-            <div className="text-xs text-gray-500">
-              (Captured for audit/debug; backend may ignore it until you enforce everywhere.)
-            </div>
+            <div className="text-xs text-gray-500">(Captured for audit/debug; backend may ignore it until you enforce everywhere.)</div>
           </div>
 
           <DialogFooter>
@@ -535,7 +662,7 @@ function UsersInner() {
               Cancel
             </Button>
             <Button className="bg-brand-blue text-white" onClick={runConfirm} disabled={confirmBusy}>
-              {confirmBusy ? 'Working…' : 'Confirm'}
+              {confirmBusy ? "Working…" : "Confirm"}
             </Button>
           </DialogFooter>
         </DialogContent>

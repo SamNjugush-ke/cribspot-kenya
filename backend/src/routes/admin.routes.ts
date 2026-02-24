@@ -7,6 +7,7 @@ import * as bcrypt from "bcryptjs";
 import { verifyToken } from "../middlewares/verifyToken";
 import { requireAuth } from "../middlewares/requireAuth";
 import { requirePermission } from "../middlewares/requirePermission";
+import { adminPatchProperty } from "../controllers/admin.properties.controller";
 
 import {
   getAllUsers,
@@ -35,6 +36,13 @@ router.use("/subscriptions", adminSubscriptionsRouter);
 
 // Admin exports
 router.use("/exports", adminExportsRouter);
+
+// ...
+router.patch(
+  "/properties/:id",
+  requirePermission("APPROVE_LISTINGS"),
+  adminPatchProperty
+);
 
 
 
@@ -444,6 +452,36 @@ router.patch(
     } catch (err) {
       console.error("Admin property update error", err);
       return res.status(500).json({ error: "Failed to update property" });
+    }
+  }
+);
+
+
+router.patch(
+  "/users/:id/password",
+  requirePermission("MANAGE_USERS"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { newPassword, reason } = req.body || {};
+      if (!newPassword || String(newPassword).length < 6) {
+        return res.status(400).json({ message: "newPassword must be at least 6 characters" });
+      }
+
+      const hashed = await bcrypt.hash(String(newPassword), 10);
+      await prisma.user.update({ where: { id }, data: { password: hashed } });
+
+      await auditLog(req, {
+        action: "ADMIN_PASSWORD_RESET",
+        targetType: "USER",
+        targetId: id,
+        metadata: { reason: reason || null },
+      });
+
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: "Failed to reset password" });
     }
   }
 );

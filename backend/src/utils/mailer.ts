@@ -1,29 +1,96 @@
-// src/utils/mailer.ts
+// backend/src/utils/mailer.ts
 import nodemailer from "nodemailer";
+import dns from "node:dns";
 
-const {
-  SMTP_HOST,
-  SMTP_PORT,
-  SMTP_USER,
-  SMTP_PASS,
-  MAIL_FROM = "CribSpot Kenya <no-reply@cribspot.co.ke>",
-} = process.env;
+// ✅ Force IPv4 resolution (avoids IPv6 weirdness / broken routes)
+dns.setDefaultResultOrder("ipv4first");
 
-export const transporter = nodemailer.createTransport({
-  host: SMTP_HOST,
-  port: Number(SMTP_PORT || 587),
-  secure: false,
-  auth: { user: SMTP_USER, pass: SMTP_PASS },
-});
+const SMTP_HOST = process.env.SMTP_HOST;
+const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_USER = process.env.SMTP_USER;
+const SMTP_PASS = process.env.SMTP_PASS;
+const MAIL_FROM = process.env.MAIL_FROM || SMTP_USER || "no-reply@cribspot.co.ke";
 
-export async function sendMail(opts: {
-  to: string | string[];
-  subject: string;
-  html?: string;
-  text?: string;
-}) {
+function makeTransport(port: number) {
+  const secure = port === 465;
+
+  return nodemailer.createTransport({
+    host: SMTP_HOST,
+    port,
+    secure,
+    auth: SMTP_USER && SMTP_PASS ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
+
+    // ✅ Make failures fast + reduce "hangs forever"
+    connectionTimeout: 12_000,
+    greetingTimeout: 12_000,
+    socketTimeout: 20_000,
+
+    // ✅ TLS settings that work with most cPanel servers
+    ...(secure
+      ? {
+          tls: {
+            rejectUnauthorized: true,
+          },
+        }
+      : {
+          requireTLS: true,
+          tls: { rejectUnauthorized: true },
+        }),
+  });
+}
+
+let transporter =
+  SMTP_HOST && SMTP_USER && SMTP_PASS ? makeTransport(SMTP_PORT) : null;
+
+async function verifyNow() {
+  if (!transporter) {
+    console.warn("[MAIL] SMTP not configured (missing SMTP_HOST/SMTP_USER/SMTP_PASS).");
+    return;
+  }
+
+  try {
+    console.log("[MAIL] verifying SMTP...", {
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      user: SMTP_USER,
+      from: MAIL_FROM,
+    });
+    await transporter.verify();
+    console.log("[MAIL] SMTP ready:", { host: SMTP_HOST, port: SMTP_PORT });
+  } catch (e: any) {
+    console.error("[MAIL] SMTP verify failed:", e?.message || e);
+
+    // ✅ Automatic fallback: if 465 fails, try 587 (or vice versa)
+    const fallback = SMTP_PORT === 465 ? 587 : 465;
+    try {
+      console.log("[MAIL] trying fallback port...", { host: SMTP_HOST, port: fallback });
+      transporter = makeTransport(fallback);
+      await transporter.verify();
+      console.log("[MAIL] SMTP ready on fallback:", { host: SMTP_HOST, port: fallback });
+    } catch (e2: any) {
+      console.error("[MAIL] SMTP fallback verify failed:", e2?.message || e2);
+    }
+  }
+}
+
+// Verify once at startup
+verifyNow().catch(() => null);
+
+export async function sendMail(opts: { to: string; subject: string; html: string; from?: string }) {
+  const from = opts.from || MAIL_FROM;
+
+  if (!transporter) {
+    throw new Error("SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS.");
+  }
+
+  // Re-verify lazily if needed (helps after network changes)
+  // (won't throw on verify failure; sendMail will still attempt)
+  transporter.verify().catch(() => null);
+
   return transporter.sendMail({
-    from: MAIL_FROM,
-    ...opts,
+    from,
+    to: opts.to,
+    subject: opts.subject,
+    html: opts.html,
   });
 }

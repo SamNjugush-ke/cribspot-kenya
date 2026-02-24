@@ -46,6 +46,7 @@ export const getAllProperties = async (req: Request, res: Response) => {
       status,
       county,
       constituency,
+      ward,
       amenities,
       page,
       limit,
@@ -66,7 +67,8 @@ export const getAllProperties = async (req: Request, res: Response) => {
 
       featured: featured !== undefined ? String(featured) === "true" : undefined,
       county: county ? String(county) : undefined,
-      constituency: constituency ? String(constituency) : undefined, // now filters by constituency
+      constituency: constituency ? String(constituency) : undefined, 
+      ward: ward ? String(ward) : undefined,
     };
 
     const hasUnitFilters = minPrice || maxPrice || bedrooms || type;
