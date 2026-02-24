@@ -1,4 +1,3 @@
-// backend/src/utils/mailer.ts
 import nodemailer from "nodemailer";
 import dns from "node:dns";
 
@@ -18,7 +17,8 @@ function makeTransport(port: number) {
     host: SMTP_HOST,
     port,
     secure,
-    auth: SMTP_USER && SMTP_PASS ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
+    auth:
+      SMTP_USER && SMTP_PASS ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
 
     // ✅ Make failures fast + reduce "hangs forever"
     connectionTimeout: 12_000,
@@ -28,9 +28,7 @@ function makeTransport(port: number) {
     // ✅ TLS settings that work with most cPanel servers
     ...(secure
       ? {
-          tls: {
-            rejectUnauthorized: true,
-          },
+          tls: { rejectUnauthorized: true },
         }
       : {
           requireTLS: true,
@@ -44,7 +42,9 @@ let transporter =
 
 async function verifyNow() {
   if (!transporter) {
-    console.warn("[MAIL] SMTP not configured (missing SMTP_HOST/SMTP_USER/SMTP_PASS).");
+    console.warn(
+      "[MAIL] SMTP not configured (missing SMTP_HOST/SMTP_USER/SMTP_PASS)."
+    );
     return;
   }
 
@@ -63,10 +63,16 @@ async function verifyNow() {
     // ✅ Automatic fallback: if 465 fails, try 587 (or vice versa)
     const fallback = SMTP_PORT === 465 ? 587 : 465;
     try {
-      console.log("[MAIL] trying fallback port...", { host: SMTP_HOST, port: fallback });
+      console.log("[MAIL] trying fallback port...", {
+        host: SMTP_HOST,
+        port: fallback,
+      });
       transporter = makeTransport(fallback);
       await transporter.verify();
-      console.log("[MAIL] SMTP ready on fallback:", { host: SMTP_HOST, port: fallback });
+      console.log("[MAIL] SMTP ready on fallback:", {
+        host: SMTP_HOST,
+        port: fallback,
+      });
     } catch (e2: any) {
       console.error("[MAIL] SMTP fallback verify failed:", e2?.message || e2);
     }
@@ -76,7 +82,14 @@ async function verifyNow() {
 // Verify once at startup
 verifyNow().catch(() => null);
 
-export async function sendMail(opts: { to: string; subject: string; html: string; from?: string }) {
+type MailTo = string | string[];
+
+export async function sendMail(opts: {
+  to: MailTo;
+  subject: string;
+  html: string;
+  from?: string;
+}) {
   const from = opts.from || MAIL_FROM;
 
   if (!transporter) {
@@ -84,12 +97,14 @@ export async function sendMail(opts: { to: string; subject: string; html: string
   }
 
   // Re-verify lazily if needed (helps after network changes)
-  // (won't throw on verify failure; sendMail will still attempt)
   transporter.verify().catch(() => null);
+
+  // Nodemailer accepts array, but also fine to stringify
+  const to = Array.isArray(opts.to) ? opts.to.filter(Boolean) : opts.to;
 
   return transporter.sendMail({
     from,
-    to: opts.to,
+    to,
     subject: opts.subject,
     html: opts.html,
   });
