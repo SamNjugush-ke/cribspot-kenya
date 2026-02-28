@@ -1,9 +1,9 @@
 import { Request, Response } from "express";
 import prisma from "../utils/prisma";
-import { Role, ConversationType, ParticipantRole } from "@prisma/client";
+import { Role } from "@prisma/client";
 import { Notifications } from "../services/notification.service";
 import { renderTemplate, TPL_NEWSLETTER } from "../utils/templates";
-import { auditLog } from "../utils/audit"; 
+import { auditLog } from "../utils/audit";
 
 type Audience = {
   roles?: Role[];
@@ -37,6 +37,16 @@ async function resolveAudience(audience: Audience): Promise<{ ids: string[]; ema
   };
 }
 
+/**
+ * POST /api/admin/broadcasts/send
+ * body:
+ *  {
+ *    subject?: string,
+ *    content: string,
+ *    channels: { inApp?: boolean, email?: boolean },
+ *    audience: { roles?: Role[], userIds?: string[], onlySubscribed?: boolean }
+ *  }
+ */
 export const sendBroadcast = async (req: Request, res: Response) => {
   try {
     const adminId = req.user?.id;
@@ -59,7 +69,6 @@ export const sendBroadcast = async (req: Request, res: Response) => {
     const useEmail = !!channels?.email;
     if (!useInApp && !useEmail) return res.status(400).json({ message: "Select at least one channel" });
 
-    // must specify roles OR userIds (not neither)
     const hasRoles = !!audience?.roles?.length;
     const hasUsers = !!audience?.userIds?.length;
     if (!hasRoles && !hasUsers) {
@@ -68,75 +77,72 @@ export const sendBroadcast = async (req: Request, res: Response) => {
 
     const resolved = await resolveAudience(audience);
 
-    // Audit
+    // AUDIT: request
     await auditLog(req, {
       action: "BROADCAST_SEND_REQUEST",
       targetType: "BROADCAST",
       targetId: "broadcast",
       metadata: {
+        subject: subject ?? null,
         channels: { inApp: useInApp, email: useEmail },
         audience,
         resolvedCount: resolved.ids.length,
       },
     });
 
-    let inApp = { conversationId: null as string | null, recipients: 0 };
+    let inApp = { recipients: 0 };
     let email = { sent: 0 };
 
     // -----------------------
     // In-app broadcast
     // -----------------------
     if (useInApp) {
-      const convo = await prisma.conversation.create({
-        data: {
-          type: ConversationType.BROADCAST,
-          subject: subject ?? "Announcement",
-          participants: { create: [{ userId: adminId, role: ParticipantRole.ADMIN }] },
-        },
-        select: { id: true },
-      });
+      if (resolved.ids.length) {
+        // Create one Notification row per recipient.
+        // This powers the bell + /dashboard/notifications.
+        await prisma.notification.createMany({
+          data: resolved.ids.map((uid) => ({
+            userId: uid,
+            title: subject?.trim() || "Announcement",
+            body: content.trim(),
+            link: "/dashboard/notifications",
+          })),
+        });
+      }
 
-      await prisma.message.create({
-        data: {
-          conversationId: convo.id,
-          senderId: adminId,
-          receiverId: adminId, // legacy
-          content: content.trim(),
-        },
-      });
-
-      // If you have an Alerts/Notifications table, create per-user rows here (optional).
-      // For now we just create conversation + message and rely on UI to show broadcast history.
-
-      inApp = { conversationId: convo.id, recipients: resolved.ids.length };
+      inApp = { recipients: resolved.ids.length };
     }
 
     // -----------------------
-    // Email broadcast
+    // Email broadcast (BCC-style)
     // -----------------------
     if (useEmail) {
       if (!resolved.emails.length) {
         email = { sent: 0 };
       } else {
-        // render the newsletter template using content as intro
         const html = renderTemplate(TPL_NEWSLETTER, {
           title: subject ?? "Announcement",
           intro: content.trim(),
         });
+
         await Notifications.broadcast(resolved.emails, subject ?? "Announcement", html);
         email = { sent: resolved.emails.length };
       }
     }
 
+    // AUDIT: sent
     await auditLog(req, {
       action: "BROADCAST_SENT",
       targetType: "BROADCAST",
-      targetId: inApp.conversationId || "email_only",
+      targetId: "broadcast",
       metadata: {
+        subject: subject ?? null,
+        contentPreview: content.trim().slice(0, 200),
         channels: { inApp: useInApp, email: useEmail },
         audience,
         inApp,
         email,
+        audienceCount: resolved.ids.length,
       },
     });
 
@@ -147,7 +153,29 @@ export const sendBroadcast = async (req: Request, res: Response) => {
       email,
       audienceCount: resolved.ids.length,
     });
-  } catch (err) {
-    res.status(500).json({ message: "Broadcast failed", error: err });
+  } catch (err: any) {
+    res.status(500).json({ message: "Broadcast failed", error: String(err?.message || err) });
+  }
+};
+
+/**
+ * GET /api/admin/broadcasts/history
+ * Returns recent BROADCAST_SENT audit entries.
+ */
+export const listBroadcastHistory = async (req: Request, res: Response) => {
+  try {
+    const actorId = req.user?.id;
+    if (!actorId) return res.status(401).json({ message: "Unauthorized" });
+
+    const items = await prisma.auditLog.findMany({
+      where: { action: "BROADCAST_SENT" },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      include: { actor: { select: { id: true, email: true, name: true, role: true } } },
+    });
+
+    res.json({ items });
+  } catch (err: any) {
+    res.status(500).json({ message: "Failed to load broadcast history", error: String(err?.message || err) });
   }
 };

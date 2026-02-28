@@ -1,4 +1,3 @@
-// frontend/src/app/lister/page.tsx
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
@@ -20,6 +19,9 @@ import {
 import UnitEditor from "@/components/listing/UnitEditor";
 import ImageUploader from "@/components/listing/ImageUploader";
 
+// ✅ Match ImageUploader expectation
+type ImageItem = { id?: string; url: string };
+
 type Prop = {
   id: string;
   title: string;
@@ -29,25 +31,29 @@ type Prop = {
   area?: string;
   status: "DRAFT" | "PUBLISHED" | "UNPUBLISHED";
   units: any[];
-  images: { id?: string; url: string }[];
+  images: ImageItem[];
   updatedAt?: string;
 };
 
 async function createDraft(payload: Partial<Prop>) {
-  const res = await apiPost<Prop>("/api/properties", payload);
-  if (!res.ok || !res.data) throw new Error((res.data as any)?.message || `Draft create failed (${res.status})`);
+  // NOTE: API_BASE already ends with "/api", so pass "/properties" (NOT "/api/properties")
+  const res = await apiPost<Prop>("/properties", payload);
+  if (!res.ok || !res.data)
+    throw new Error(res.error || `Draft create failed (${res.status})`);
   return res.data;
 }
 
 async function updateDraft(id: string, payload: Partial<Prop>) {
-  const res = await apiPatch<Prop>(`/api/properties/${id}`, payload);
-  if (!res.ok || !res.data) throw new Error((res.data as any)?.message || `Draft save failed (${res.status})`);
+  const res = await apiPatch<Prop>(`/properties/${id}`, payload);
+  if (!res.ok || !res.data)
+    throw new Error(res.error || `Draft save failed (${res.status})`);
   return res.data;
 }
 
 async function publishListing(id: string) {
-  const res = await apiPatch<Prop>(`/api/properties/${id}/publish`, {});
-  if (!res.ok || !res.data) throw new Error((res.data as any)?.message || `Publish failed (${res.status})`);
+  const res = await apiPatch<Prop>(`/properties/${id}/publish`, {});
+  if (!res.ok || !res.data)
+    throw new Error(res.error || `Publish failed (${res.status})`);
   return res.data;
 }
 
@@ -78,7 +84,8 @@ function ListingFlowInner() {
   const [area, setArea] = useState("");
 
   const [units, setUnits] = useState<any[]>([]);
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  // ✅ was string[]
+  const [images, setImages] = useState<ImageItem[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -87,7 +94,10 @@ function ListingFlowInner() {
 
   useEffect(() => {
     (async () => {
-      const res = await apiGet<{ items: Prop[] }>("/api/properties/mine?status=DRAFT");
+      const res = await apiGet<{ items: Prop[] }>("/properties/mine", {
+        params: { status: "DRAFT" },
+        cache: "no-store",
+      });
       if (res.ok && res.data?.items) setDrafts(res.data.items);
     })();
   }, []);
@@ -98,7 +108,7 @@ function ListingFlowInner() {
       setError(null);
       setMsg(null);
 
-      const res = await apiGet<Prop>(`/api/properties/${existingId}`);
+      const res = await apiGet<Prop>(`/properties/${existingId}`, { cache: "no-store" });
       if (!res.ok || !res.data) return;
 
       const p = res.data;
@@ -109,7 +119,8 @@ function ListingFlowInner() {
       setCounty(p.county || "");
       setArea(p.area || "");
       setUnits(p.units || []);
-      setImageUrls((p.images || []).map((i) => i.url));
+      // ✅ keep ImageItem[] (not string[])
+      setImages(Array.isArray(p.images) ? p.images : []);
       setStep(2);
     })();
   }, [existingId]);
@@ -120,8 +131,18 @@ function ListingFlowInner() {
     setMsg(null);
 
     try {
-      const payload = { title, description, location, county, area, status: "DRAFT" as const };
-      const p = property ? await updateDraft(property.id, payload) : await createDraft(payload);
+      const payload = {
+        title,
+        description,
+        location,
+        county,
+        area,
+        status: "DRAFT" as const,
+      };
+      const p = property
+        ? await updateDraft(property.id, payload)
+        : await createDraft(payload);
+
       setProperty(p);
       setMsg(property ? "Draft saved." : "Draft created.");
     } catch (e: any) {
@@ -182,7 +203,11 @@ function ListingFlowInner() {
                 <span>
                   {d.title || "(Untitled)"} — {d.location || "No location"}
                 </span>
-                <Button size="sm" variant="outline" onClick={() => router.push(`/lister/list?id=${d.id}`)}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => router.push(`/lister/list?id=${d.id}`)}
+                >
                   ✏️ Edit
                 </Button>
               </li>
@@ -201,7 +226,11 @@ function ListingFlowInner() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <Label>Title</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., 2BR Apartment in Westlands" />
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g., 2BR Apartment in Westlands"
+            />
           </div>
           <div>
             <Label>Location</Label>
@@ -258,7 +287,8 @@ function ListingFlowInner() {
       {property && step >= 3 && (
         <div className="rounded-xl border bg-white p-4">
           <h2 className="font-semibold mb-3">Step 3 — Images</h2>
-          <ImageUploader propertyId={property.id} images={imageUrls} onChange={setImageUrls} />
+          {/* ✅ ImageUploader expects ImageItem[] */}
+          <ImageUploader propertyId={property.id} images={images} onChange={setImages} />
           <div className="mt-3">
             <Button className="bg-brand-sky" onClick={() => setStep(4)}>
               Next: Review
@@ -282,7 +312,7 @@ function ListingFlowInner() {
               <b>Units:</b> {units.length}
             </li>
             <li>
-              <b>Images:</b> {imageUrls.length}
+              <b>Images:</b> {images.length}
             </li>
           </ul>
           <div className="mt-3 flex gap-2">

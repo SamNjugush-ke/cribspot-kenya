@@ -1,53 +1,100 @@
-'use client';
+"use client";
 
-import { useRef, useState } from 'react';
-import api, { API_BASE, apiDelete } from '@/lib/api';
-import { Button } from '@/components/ui/button';
+import { useEffect, useMemo, useRef, useState } from "react";
+import { API_BASE, apiDelete } from "@/lib/api";
+import { Button } from "@/components/ui/button";
 
-type ImageItem = { id?: string; url: string };
+export type ImageItem = { id?: string; url: string };
 
 type Props = {
   propertyId: string;
-  images: Array<string | ImageItem>;
-  onChange: (urls: string[]) => void;
+
+  /** Use ImageItem[] so removals can delete from server (needs id). */
+  images: ImageItem[];
+
+  /** Parent receives ImageItem[] (ids preserved). */
+  onChange: (items: ImageItem[]) => void;
+
+  /** default 10 */
+  maxImages?: number;
+
+  /** optional: parent can disable submit while uploading */
+  onBusyChange?: (busy: boolean) => void;
 };
 
-function normalize(images: Array<string | ImageItem>): ImageItem[] {
-  return images.map((i) => (typeof i === 'string' ? { url: i } : i));
+function uniqByUrl(items: ImageItem[]) {
+  const seen = new Set<string>();
+  const out: ImageItem[] = [];
+  for (const it of items) {
+    if (!it?.url) continue;
+    if (seen.has(it.url)) continue;
+    seen.add(it.url);
+    out.push(it);
+  }
+  return out;
 }
 
-export default function ImageUploader({ propertyId, images, onChange }: Props) {
+export default function ImageUploader({
+  propertyId,
+  images,
+  onChange,
+  maxImages: maxImagesProp = 10,
+  onBusyChange,
+}: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [items, setItems] = useState<ImageItem[]>(normalize(images));
+  const maxImages = useMemo(() => Math.max(1, maxImagesProp), [maxImagesProp]);
+
+  const [items, setItems] = useState<ImageItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const notifyParent = (list: ImageItem[]) => onChange(list.map((x) => x.url));
+  const syncAndTrim = (next: ImageItem[]) => {
+    const cleaned = uniqByUrl(next).filter((x) => x.url).slice(0, maxImages);
+    setItems(cleaned);
+    onChange(cleaned);
+  };
+
+  // Keep internal list in sync when parent loads an existing draft
+  useEffect(() => {
+    syncAndTrim(images || []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(images), maxImages]);
+
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
 
   async function handlePickFiles(e: React.ChangeEvent<HTMLInputElement>) {
     setErr(null);
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
 
+    const remaining = maxImages - items.length;
+    if (remaining <= 0) {
+      setErr(`Maximum of ${maxImages} images reached.`);
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
+
+    const picked = files.slice(0, remaining);
+    if (picked.length < files.length) {
+      setErr(`You can only upload up to ${maxImages} images. Only the first ${picked.length} will be added.`);
+    }
+
     setBusy(true);
     try {
       const uploaded: ImageItem[] = [];
-
-      // API_BASE already ends with /api
       const uploadUrl = `${API_BASE}/properties/${propertyId}/images`;
 
-      // upload sequentially (simple + safe)
-      for (const f of files) {
+      for (const f of picked) {
         const fd = new FormData();
-        fd.append('file', f);
+        fd.append("file", f);
 
-        // POST /properties/:id/images (API_BASE includes /api)
         const res = await fetch(uploadUrl, {
-          method: 'POST',
+          method: "POST",
           headers: {
-            // auth header handled in api.ts normally, but here we send multipart so we fetch directly
-            ...(typeof window !== 'undefined' && localStorage.getItem('rk_token')
-              ? { Authorization: `Bearer ${localStorage.getItem('rk_token')}` }
+            ...(typeof window !== "undefined" && localStorage.getItem("rk_token")
+              ? { Authorization: `Bearer ${localStorage.getItem("rk_token")}` }
               : {}),
           },
           body: fd,
@@ -62,35 +109,35 @@ export default function ImageUploader({ propertyId, images, onChange }: Props) {
         uploaded.push({ id: j.id, url: j.url });
       }
 
-      const next = [...items, ...uploaded];
-      setItems(next);
-      notifyParent(next);
+      // Final trim + dedupe guarantees no broken placeholders downstream
+      syncAndTrim([...items, ...uploaded]);
     } catch (e: any) {
-      setErr(e?.message || 'Upload failed');
+      setErr(e?.message || "Upload failed");
     } finally {
       setBusy(false);
-      if (inputRef.current) inputRef.current.value = '';
+      if (inputRef.current) inputRef.current.value = "";
     }
   }
 
   async function removeImage(img: ImageItem) {
     setErr(null);
+
+    // optimistic UI
     const optimistic = items.filter((x) => x.url !== img.url);
     setItems(optimistic);
-    notifyParent(optimistic);
+    onChange(optimistic);
 
-    // If this image exists server-side (has id), delete there too
+    // If it exists on server, delete there too
     if (img.id) {
       try {
-        // DELETE /api/properties/:id/images/:imageId
-        const res = await apiDelete(`/api/properties/${propertyId}/images/${img.id}`);
-        if (!res.ok) throw new Error((res.json as any)?.message || `Delete failed (HTTP ${res.status})`);
+        const res = await apiDelete(`/properties/${propertyId}/images/${img.id}`);
+        if (!res.ok) throw new Error((res.data as any)?.message || `Delete failed (HTTP ${res.status})`);
       } catch (e: any) {
         // rollback if server delete failed
-        const rolledBack = [...optimistic, img];
+        const rolledBack = uniqByUrl([...optimistic, img]).slice(0, maxImages);
         setItems(rolledBack);
-        notifyParent(rolledBack);
-        setErr(e?.message || 'Failed to delete image');
+        onChange(rolledBack);
+        setErr(e?.message || "Failed to delete image");
       }
     }
   }
@@ -114,8 +161,11 @@ export default function ImageUploader({ propertyId, images, onChange }: Props) {
           onClick={() => inputRef.current?.click()}
           disabled={busy}
         >
-          {busy ? 'Uploading…' : 'Add Images'}
+          {busy ? "Uploading…" : "Add Images"}
         </Button>
+        <div className="text-xs text-gray-600">
+          {items.length}/{maxImages}
+        </div>
       </div>
 
       {err && <p className="text-sm text-red-600 mt-2">{err}</p>}
@@ -135,7 +185,8 @@ export default function ImageUploader({ propertyId, images, onChange }: Props) {
           </figure>
         ))}
       </div>
-      <p className="text-xs text-gray-600 mt-2">Up to 10 images. First image is used as the cover.</p>
+
+      <p className="text-xs text-gray-600 mt-2">Up to {maxImages} images. First image is used as the cover.</p>
     </div>
   );
 }

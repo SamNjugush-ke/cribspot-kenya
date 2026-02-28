@@ -5,6 +5,7 @@ import multer from "multer";
 import {
   getAllProperties,
   getPropertyById,
+  getAreaSuggestions,
   createProperty,
   deleteProperty,
   getPropertyDetails,
@@ -37,6 +38,7 @@ const upload = multer({
 router.get("/published", getPublishedProperties);
 router.get("/stats/counties", getPropertyStatsByCounty);
 router.get("/stats/constituencies", getPropertyStatsByConstituency);
+router.get("/areas", getAreaSuggestions);
 router.get("/", getAllProperties);
 
 /**

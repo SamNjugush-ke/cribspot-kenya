@@ -11,7 +11,10 @@ import { ListingStatus } from "@prisma/client";
 /** Helpers */
 const RAW_PUBLIC_BASE = process.env.PUBLIC_BASE_URL || "http://localhost:4000";
 function pickPublicBase(raw: string) {
-  const first = raw.split(",").map(s => s.trim()).find(Boolean);
+  const first = raw
+    .split(",")
+    .map((s) => s.trim())
+    .find(Boolean);
   return first || "http://localhost:4000";
 }
 const PUBLIC_BASE = pickPublicBase(RAW_PUBLIC_BASE);
@@ -24,9 +27,19 @@ function ensureDirSync(dir: string) {
 function parseAmenityNames(input?: string | string[] | null): string[] {
   if (!input) return [];
   if (Array.isArray(input)) {
-    return input.flatMap(s => s.split(",")).map(s => s.trim()).filter(Boolean);
+    return input
+      .flatMap((s) => s.split(","))
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
-  return input.split(",").map(s => s.trim()).filter(Boolean);
+  return String(input)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function normStr(v: any): string {
+  return typeof v === "string" ? v.trim() : String(v ?? "").trim();
 }
 
 /* =========================
@@ -38,6 +51,7 @@ export const getAllProperties = async (req: Request, res: Response) => {
   try {
     const {
       location,
+      area,
       minPrice,
       maxPrice,
       bedrooms,
@@ -61,15 +75,24 @@ export const getAllProperties = async (req: Request, res: Response) => {
     const where: any = {
       location: location ? { contains: String(location), mode: "insensitive" } : undefined,
       status:
-        status !== undefined && String(status) !== "ALL"
-          ? String(status)
-          : undefined, //ALL => no status filter (admin moderation needs this)
-
+        status !== undefined && String(status) !== "ALL" ? String(status) : undefined, // ALL => no status filter
       featured: featured !== undefined ? String(featured) === "true" : undefined,
       county: county ? String(county) : undefined,
-      constituency: constituency ? String(constituency) : undefined, 
+      constituency: constituency ? String(constituency) : undefined,
       ward: ward ? String(ward) : undefined,
     };
+
+    // ✅ Area filter (free-text search). Back-compat: fallback to location if area is null on older rows.
+    if (area && String(area).trim()) {
+      const q = String(area).trim();
+      where.AND = where.AND || [];
+      where.AND.push({
+        OR: [
+          { area: { contains: q, mode: "insensitive" } },
+          { location: { contains: q, mode: "insensitive" } },
+        ],
+      });
+    }
 
     const hasUnitFilters = minPrice || maxPrice || bedrooms || type;
     if (hasUnitFilters) {
@@ -105,7 +128,7 @@ export const getAllProperties = async (req: Request, res: Response) => {
           units: true,
           images: true,
           amenities: { include: { amenity: true } },
-          lister: { select: { id: true, name: true, email: true, phone: true } }, // ✅ added phone
+          lister: { select: { id: true, name: true, email: true, phone: true } }, // ✅ includes phone
         },
         orderBy: { createdAt: "desc" },
         take,
@@ -122,7 +145,73 @@ export const getAllProperties = async (req: Request, res: Response) => {
       pages: Math.ceil(total / take),
     });
   } catch (err) {
-    res.status(500).json({ message: "Filter fetch failed", error: err });
+    res.status(500).json({ message: "Filter fetch failed", error: String(err) });
+  }
+};
+
+// GET /api/properties/areas?q=sec&county=Kiambu&constituency=Thika&limit=10
+export const getAreaSuggestions = async (req: Request, res: Response) => {
+  try {
+    const q = normStr(req.query.q);
+    const county = normStr(req.query.county);
+    const constituency = normStr(req.query.constituency);
+    const take = Math.max(1, Math.min(20, Number(req.query.limit) || 10));
+
+    if (!q) return res.json({ items: [] });
+
+    const where: any = {
+      status: "PUBLISHED",
+      ...(county ? { county } : {}),
+      ...(constituency ? { constituency } : {}),
+      AND: [
+        {
+          OR: [
+            { area: { contains: q, mode: "insensitive" } },
+            { location: { contains: q, mode: "insensitive" } },
+          ],
+        },
+      ],
+    };
+
+    const rows = await prisma.property.findMany({
+      where,
+      select: {
+        area: true,
+        location: true,
+        county: true,
+        constituency: true,
+        ward: true,
+        createdAt: true,
+      },
+      // note: distinct works well here to avoid spam; we include ward/county/constituency context
+      distinct: ["area", "county", "constituency", "ward"],
+      take,
+      orderBy: [{ createdAt: "desc" }],
+    });
+
+    const items = rows
+      .map((r) => {
+        const areaValue = normStr(r.area || r.location);
+        if (!areaValue) return null;
+
+        const c = normStr(r.county);
+        const k = normStr(r.constituency);
+        const w = normStr(r.ward);
+
+        const extra = [c || null, k || null, w || null].filter(Boolean).join(", ");
+        return {
+          area: areaValue,
+          county: c,
+          constituency: k,
+          ward: w,
+          label: extra ? `${areaValue}, ${extra}` : areaValue,
+        };
+      })
+      .filter(Boolean);
+
+    res.json({ items });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch area suggestions", error: String(err) });
   }
 };
 
@@ -136,13 +225,13 @@ export const getPropertyDetails = async (req: Request, res: Response) => {
         units: true,
         images: true,
         amenities: { include: { amenity: true } },
-        lister: { select: { id: true, name: true, email: true, phone: true } }, // ✅ added phone
+        lister: { select: { id: true, name: true, email: true, phone: true } },
       },
     });
     if (!property) return res.status(404).json({ error: "Property not found" });
     res.json(property);
   } catch (err) {
-    res.status(500).json({ error: "Failed to fetch property details", details: err });
+    res.status(500).json({ error: "Failed to fetch property details", details: String(err) });
   }
 };
 
@@ -155,13 +244,13 @@ export const getPropertyById = async (req: Request, res: Response) => {
         units: true,
         images: true,
         amenities: { include: { amenity: true } },
-        lister: { select: { id: true, name: true, email: true, phone: true } }, // ✅ added phone
+        lister: { select: { id: true, name: true, email: true, phone: true } },
       },
     });
     if (!property) return res.status(404).json({ error: "Property not found" });
     res.json(property);
   } catch (err) {
-    res.status(500).json({ error: "Failed to fetch property", details: err });
+    res.status(500).json({ error: "Failed to fetch property", details: String(err) });
   }
 };
 
@@ -188,7 +277,7 @@ export const getSimilarProperties = async (req: Request, res: Response) => {
         units: true,
         images: true,
         amenities: { include: { amenity: true } },
-        lister: { select: { id: true, name: true, email: true, phone: true } }, 
+        lister: { select: { id: true, name: true, email: true, phone: true } },
       },
       orderBy: { createdAt: "desc" },
       take: 8,
@@ -196,7 +285,7 @@ export const getSimilarProperties = async (req: Request, res: Response) => {
 
     res.json(similar);
   } catch (err) {
-    res.status(500).json({ message: "Failed to load similar properties", error: err });
+    res.status(500).json({ message: "Failed to load similar properties", error: String(err) });
   }
 };
 
@@ -222,16 +311,13 @@ export const getPropertyStatsByConstituency = async (req: Request, res: Response
         name: g.constituency ?? "Unknown",
         count: g._count.id,
       }))
-      .sort((a, b) => a.name.localeCompare(b.name)); 
+      .sort((a, b) => a.name.localeCompare(b.name));
 
     res.json(result);
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Failed to compute stats by constituency", error: err });
+    res.status(500).json({ message: "Failed to compute stats by constituency", error: String(err) });
   }
 };
-
 
 /* =========================
    CREATE / UPDATE / DELETE
@@ -242,20 +328,27 @@ export const createProperty = async (req: Request, res: Response) => {
     const listerId = req.user?.id;
     if (!listerId) return res.status(401).json({ message: "Unauthorized" });
 
-    const {
-      title, location, description, county, constituency, ward, area, units, images, publishNow,
-    } = req.body;
+    const { title, location, description, county, constituency, ward, area, units, images, publishNow } = req.body;
 
     const shouldPublish = publishNow === true;
 
     if (shouldPublish) {
-      if (!title?.trim() || !location?.trim() || !description?.trim() ||
-          !county?.trim() || !constituency?.trim() || !ward?.trim()) {
+      if (
+        !title?.trim() ||
+        !location?.trim() ||
+        !description?.trim() ||
+        !county?.trim() ||
+        !constituency?.trim() ||
+        !ward?.trim()
+      ) {
         return res.status(400).json({ message: "Missing required fields for publish" });
       }
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      const finalArea =
+        normStr(area) ? normStr(area) : normStr(location) ? normStr(location) : null;
+
       // Create first (DRAFT or PUBLISHED), but only "consumeSlot" if we successfully charge quota
       const created = await tx.property.create({
         data: {
@@ -265,10 +358,10 @@ export const createProperty = async (req: Request, res: Response) => {
           county: county ?? null,
           constituency: constituency ?? null,
           ward: ward ?? null,
-          area: area ?? null,
+          area: finalArea,
           listerId,
           status: shouldPublish ? "PUBLISHED" : "DRAFT",
-          consumedSlot: false, // will set true after successful quota charge
+          consumedSlot: false,
           units: Array.isArray(units) && units.length ? { create: units } : undefined,
           images: Array.isArray(images) && images.length ? { create: images } : undefined,
         },
@@ -322,14 +415,19 @@ export const createProperty = async (req: Request, res: Response) => {
 export const updateProperty = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { title, location, description, featured, units, images, amenities,
-            county, constituency, ward, area } = req.body;
+    const { title, location, description, featured, units, images, amenities, county, constituency, ward, area } = req.body;
+
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
     const property = await prisma.property.findUnique({
       where: { id },
       include: { amenities: true },
     });
     if (!property) return res.status(404).json({ message: "Property not found" });
+
+    // ✅ Ownership check (security + fixes confusing permission behavior)
+    if (property.listerId !== userId) return res.status(403).json({ message: "Not your listing" });
 
     if (property.status === "PUBLISHED" && (units || images)) {
       return res.status(403).json({ message: "Published properties cannot change units or images." });
@@ -341,15 +439,30 @@ export const updateProperty = async (req: Request, res: Response) => {
       const found = amenityNames.length
         ? await prisma.amenity.findMany({ where: { name: { in: amenityNames, mode: "insensitive" } } })
         : [];
+
       await prisma.propertyAmenity.deleteMany({ where: { propertyId: id } });
       if (found.length > 0) {
-        amenityOps = { create: found.map(a => ({ amenityId: a.id })) };
+        amenityOps = { create: found.map((a) => ({ amenityId: a.id })) };
       }
     }
 
+    // ✅ Keep area aligned to location by default (unless explicitly provided)
+    const nextArea =
+      normStr(area) ? normStr(area) : location !== undefined ? normStr(location) : undefined;
+
     await prisma.property.update({
       where: { id },
-      data: { title, location, description, featured, county, constituency, ward, area, amenities: amenityOps },
+      data: {
+        title,
+        location,
+        description,
+        featured,
+        county,
+        constituency,
+        ward,
+        area: nextArea,
+        amenities: amenityOps,
+      },
     });
 
     if (Array.isArray(units) && property.status !== "PUBLISHED") {
@@ -373,7 +486,11 @@ export const updateProperty = async (req: Request, res: Response) => {
 
     const final = await prisma.property.findUnique({
       where: { id },
-      include: { units: true, images: true, amenities: { include: { amenity: true } } },
+      include: {
+        units: true,
+        images: true,
+        amenities: { include: { amenity: true } },
+      },
     });
 
     res.json(final);
@@ -381,7 +498,6 @@ export const updateProperty = async (req: Request, res: Response) => {
     res.status(500).json({ message: "Update failed", error: String(err) });
   }
 };
-
 
 // DELETE /api/properties/:id
 export const deleteProperty = async (req: Request, res: Response) => {
@@ -414,7 +530,7 @@ export const deleteProperty = async (req: Request, res: Response) => {
 
     res.json({ message: "Property deleted" });
   } catch (err) {
-    res.status(500).json({ message: "Failed to delete property", error: err });
+    res.status(500).json({ message: "Failed to delete property", error: String(err) });
   }
 };
 
@@ -432,11 +548,11 @@ export const getPublishedProperties = async (_req: Request, res: Response) => {
 
     res.json(listings);
   } catch (err) {
-    res.status(500).json({ message: "Failed to fetch properties", error: err });
+    res.status(500).json({ message: "Failed to fetch properties", error: String(err) });
   }
 };
 
-//publish property
+// publish property
 export const publishProperty = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -448,12 +564,10 @@ export const publishProperty = async (req: Request, res: Response) => {
       if (!property) return { kind: "not_found" as const };
       if (property.listerId !== listerId) return { kind: "forbidden" as const };
 
-      // Already published? return it
       if (property.status === "PUBLISHED") {
         return { kind: "ok" as const, property, quota: null };
       }
 
-      // If not yet consumed, charge FIFO quota once
       let quota = null as any;
       if (!property.consumedSlot) {
         quota = await consumeQuotaFIFO({
@@ -497,8 +611,7 @@ export const publishProperty = async (req: Request, res: Response) => {
   }
 };
 
-
-//Change Property Status
+// Change Property Status
 export const changePropertyStatus = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -541,7 +654,6 @@ export const changePropertyStatus = async (req: Request, res: Response) => {
         return { kind: "ok" as const, updated, quota };
       }
 
-      // Any other status: just update status (we do NOT refund quota)
       const updated = await tx.property.update({
         where: { id },
         data: { status: newStatus },
@@ -573,7 +685,6 @@ export const changePropertyStatus = async (req: Request, res: Response) => {
   }
 };
 
-
 /* =========================
    MINE / IMAGES
    ========================= */
@@ -602,10 +713,9 @@ export const getMyProperties = async (req: Request, res: Response) => {
 
     res.json({ items, total, limit, page, pages: Math.ceil(total / limit) });
   } catch (err) {
-    res.status(500).json({ message: "Failed to load your properties", error: err });
+    res.status(500).json({ message: "Failed to load your properties", error: String(err) });
   }
 };
-
 
 // GET /api/properties/stats/counties
 export const getPropertyStatsByCounty = async (_req: Request, res: Response) => {
@@ -624,7 +734,7 @@ export const getPropertyStatsByCounty = async (_req: Request, res: Response) => 
 
     res.json(result);
   } catch (err) {
-    res.status(500).json({ message: "Failed to compute stats by county", error: err });
+    res.status(500).json({ message: "Failed to compute stats by county", error: String(err) });
   }
 };
 
@@ -658,7 +768,7 @@ export const uploadPropertyImage = async (req: Request, res: Response) => {
 
     res.status(201).json(created);
   } catch (err) {
-    res.status(500).json({ message: "Failed to upload image", error: err });
+    res.status(500).json({ message: "Failed to upload image", error: String(err) });
   }
 };
 
@@ -690,6 +800,6 @@ export const removePropertyImage = async (req: Request, res: Response) => {
 
     res.json({ message: "Image removed" });
   } catch (err) {
-    res.status(500).json({ message: "Failed to remove image", error: err });
+    res.status(500).json({ message: "Failed to remove image", error: String(err) });
   }
 };

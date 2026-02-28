@@ -1,3 +1,4 @@
+//frontend/src/components/super/RequirePermission.tsx
 "use client";
 
 import React from "react";

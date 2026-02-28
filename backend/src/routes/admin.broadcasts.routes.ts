@@ -1,15 +1,19 @@
 import express from "express";
+import { Role } from "@prisma/client";
+
 import { verifyToken } from "../middlewares/verifyToken";
 import { requireAuth } from "../middlewares/requireAuth";
-import { requirePermission } from "../middlewares/requirePermission";
-import { sendBroadcast } from "../controllers/admin.broadcasts.controller";
+import { requireRole } from "../middlewares/requireRole";
+
+import { sendBroadcast, listBroadcastHistory } from "../controllers/admin.broadcasts.controller";
 
 const router = express.Router();
 
 router.use(verifyToken, requireAuth);
 
-// You can split these later (SEND_INAPP_BROADCAST, SEND_EMAIL_BROADCAST)
-// For now: one permission is fine.
-//router.post("/send", requirePermission("SEND_BROADCASTS"), sendBroadcast);
+// Keep it simple + reliable: only ADMIN/SUPER_ADMIN can broadcast.
+// (No dependency on a specific Permission enum value.)
+router.post("/send", requireRole([Role.ADMIN, Role.SUPER_ADMIN]), sendBroadcast);
+router.get("/history", requireRole([Role.ADMIN, Role.SUPER_ADMIN]), listBroadcastHistory);
 
 export default router;

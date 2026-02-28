@@ -39,6 +39,8 @@ model User {
   UserRoleDefinition      UserRoleDefinition[]
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
+
+  notifications Notification[]
 }
 
 model EmailVerificationToken {
@@ -427,6 +429,8 @@ model SupportTicket {
   messages     SupportMessage[]
   assignedTo   User?            @relation("AssignedTickets", fields: [assignedToId], references: [id])
   createdBy    User             @relation("TicketsCreated", fields: [createdById], references: [id])
+
+  supportAttachments SupportAttachment[]
 }
 
 model SupportMessage {
@@ -438,6 +442,8 @@ model SupportMessage {
   createdAt DateTime      @default(now())
   sender    User          @relation(fields: [senderId], references: [id])
   ticket    SupportTicket @relation(fields: [ticketId], references: [id])
+
+  supportAttachments SupportAttachment[]
 }
 
 model SystemSetting {
@@ -487,6 +493,39 @@ model AuditLog {
   @@index([action, createdAt])
   @@index([targetType, targetId])
   @@index([impersonatedUserId, createdAt])
+}
+
+model SupportAttachment {
+  id        String   @id @default(cuid())
+  ticketId  String
+  messageId String
+  url       String
+  name      String?
+  size      Int?
+  mime      String?
+  createdAt DateTime @default(now())
+
+  ticket  SupportTicket  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  message SupportMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  
+
+  @@index([ticketId])
+  @@index([messageId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  body      String
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([createdAt])
 }
 
 enum ContentFormat {

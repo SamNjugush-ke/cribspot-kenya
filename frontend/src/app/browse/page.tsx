@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import type { Property } from "@/lib/types";
@@ -23,7 +23,7 @@ type Filters = {
   max: string;
   county: string;
   constituency: string;
-  ward: string;
+  area: string; // ✅ renamed from ward
   page: string;
   limit: string;
 };
@@ -45,19 +45,6 @@ function buildQuery(q: Record<string, string>) {
   return usp.toString();
 }
 
-function uniqStrings(arr: string[]) {
-  return Array.from(new Set(arr));
-}
-
-function safeWards(input: unknown): string[] {
-  if (!Array.isArray(input)) return [];
-  return uniqStrings(
-    input
-      .map((w) => String(w ?? "").trim())
-      .filter(Boolean)
-  ).sort((a, b) => a.localeCompare(b));
-}
-
 export default function BrowsePage() {
   return (
     <Suspense fallback={<BrowseSkeleton />}>
@@ -66,12 +53,21 @@ export default function BrowsePage() {
   );
 }
 
+type AreaSuggestion = {
+  area: string;
+  county: string;
+  constituency: string;
+  ward: string; // admin ward, used only for context display
+  label: string; // "Section 2, Kiambu, Thika, Township"
+};
+
 function BrowseInner() {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
 
-  // derive initial state from querystring (memoized)
+  // Backward compatibility:
+  // older links might still have ward=...; map it to area=...
   const initial: Filters = useMemo(
     () => ({
       type: sp.get("type") ?? "",
@@ -80,7 +76,7 @@ function BrowseInner() {
       max: sp.get("max") ?? "",
       county: sp.get("county") ?? "",
       constituency: sp.get("constituency") ?? "",
-      ward: sp.get("ward") ?? "",
+      area: sp.get("area") ?? sp.get("ward") ?? "",
       page: sp.get("page") ?? "1",
       limit: sp.get("limit") ?? DEFAULT_LIMIT,
     }),
@@ -93,13 +89,20 @@ function BrowseInner() {
   const [max, setMax] = useState<string>(initial.max);
   const [county, setCounty] = useState<string>(initial.county);
   const [constituency, setConstituency] = useState<string>(initial.constituency);
-  const [ward, setWard] = useState<string>(initial.ward);
+  const [area, setArea] = useState<string>(initial.area);
   const [page, setPage] = useState<string>(initial.page);
   const [limit, setLimit] = useState<string>(initial.limit);
 
   const [items, setItems] = useState<Property[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Autocomplete
+  const [areaOpen, setAreaOpen] = useState(false);
+  const [areaLoading, setAreaLoading] = useState(false);
+  const [areaSuggestions, setAreaSuggestions] = useState<AreaSuggestion[]>([]);
+  const areaReqSeq = useRef(0);
+  const areaDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // When URL changes via browser navigation, sync state to URL.
   useEffect(() => {
@@ -109,7 +112,7 @@ function BrowseInner() {
     setMax(initial.max);
     setCounty(initial.county);
     setConstituency(initial.constituency);
-    setWard(initial.ward);
+    setArea(initial.area);
     setPage(initial.page);
     setLimit(initial.limit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -120,13 +123,12 @@ function BrowseInner() {
     initial.max,
     initial.county,
     initial.constituency,
-    initial.ward,
+    initial.area,
     initial.page,
     initial.limit,
   ]);
 
   const countyOptions = useMemo(() => {
-    // If the URL contains a county not in constants, still show it so UI doesn’t “lose” it.
     const cur = county.trim();
     const base = [...KENYA_COUNTIES];
     if (cur && !base.includes(cur)) base.unshift(cur);
@@ -145,20 +147,49 @@ function BrowseInner() {
     return keys;
   }, [county, constituency]);
 
-  const wardOptions = useMemo(() => {
-    const c = county.trim();
-    const k = constituency.trim();
-    if (!c || !k) return [];
-    const wards = ADMIN[c]?.constituencies?.[k]?.wards ?? [];
-    const cleaned = safeWards(wards);
+  // Fetch area suggestions (debounced) when user types
+  useEffect(() => {
+    const q = area.trim();
+    if (!areaOpen) return;
 
-    const cur = ward.trim();
-    if (cur && !cleaned.includes(cur)) return [cur, ...cleaned];
-    return cleaned;
-  }, [county, constituency, ward]);
+    if (areaDebounce.current) clearTimeout(areaDebounce.current);
+
+    if (!q) {
+      setAreaSuggestions([]);
+      setAreaLoading(false);
+      return;
+    }
+
+    areaDebounce.current = setTimeout(async () => {
+      const seq = ++areaReqSeq.current;
+      setAreaLoading(true);
+
+      const res = await apiGet<{ items: AreaSuggestion[] }>("/properties/areas", {
+        params: {
+          q,
+          county: county.trim() || "",
+          constituency: constituency.trim() || "",
+          limit: "10",
+        },
+      });
+
+      // Ignore stale responses
+      if (seq !== areaReqSeq.current) return;
+
+      if (res.ok) {
+        setAreaSuggestions(Array.isArray(res.data?.items) ? res.data.items : []);
+      } else {
+        setAreaSuggestions([]);
+      }
+      setAreaLoading(false);
+    }, 250);
+
+    return () => {
+      if (areaDebounce.current) clearTimeout(areaDebounce.current);
+    };
+  }, [area, areaOpen, county, constituency]);
 
   useEffect(() => {
-    // Keep URL in sync (but avoid creating a history entry on every change)
     const urlQuery = buildQuery({
       type,
       beds,
@@ -166,7 +197,7 @@ function BrowseInner() {
       max,
       county,
       constituency,
-      ward,
+      area,
       page,
       limit,
     });
@@ -184,7 +215,7 @@ function BrowseInner() {
         maxPrice: max || "",
         county: county || "",
         constituency: constituency || "",
-        ward: ward || "", // ✅ sent to backend (needs backend support to filter)
+        area: area || "", // ✅ new backend filter
         page: page || "1",
         limit: limit || DEFAULT_LIMIT,
       },
@@ -192,16 +223,14 @@ function BrowseInner() {
       .then((res) => {
         const data: any = res.data;
         setItems(Array.isArray(data?.items) ? data.items : []);
-        if (!res.ok) {
-          setErr(res.error || "Failed to load listings");
-        }
+        if (!res.ok) setErr(res.error || "Failed to load listings");
       })
       .catch((e: any) => {
         setItems([]);
         setErr(e?.message || "Failed to load listings");
       })
       .finally(() => setLoading(false));
-  }, [type, beds, min, max, county, constituency, ward, page, limit, pathname, router]);
+  }, [type, beds, min, max, county, constituency, area, page, limit, pathname, router]);
 
   const nextPage = () => setPage(String(Number(page || "1") + 1));
   const prevPage = () => setPage(String(Math.max(1, Number(page || "1") - 1)));
@@ -210,7 +239,6 @@ function BrowseInner() {
     <section className="container py-6">
       <h1 className="text-2xl font-bold mb-3">Browse Rentals</h1>
 
-      {/* Sticky filter bar */}
       <div className="sticky top-16 z-30 bg-white/80 backdrop-blur border rounded-xl p-3 mb-4">
         <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
           <div>
@@ -282,9 +310,8 @@ function BrowseInner() {
               onChange={(e) => {
                 const next = e.target.value;
                 setCounty(next);
-                // reset dependents
                 setConstituency("");
-                setWard("");
+                setArea(""); // reset text filter too
                 setPage("1");
               }}
               className="w-full border rounded px-2 py-2"
@@ -305,7 +332,7 @@ function BrowseInner() {
               onChange={(e) => {
                 const next = e.target.value;
                 setConstituency(next);
-                setWard("");
+                setArea(""); // reset so suggestions match the new scope
                 setPage("1");
               }}
               className="w-full border rounded px-2 py-2"
@@ -320,24 +347,59 @@ function BrowseInner() {
             </select>
           </div>
 
-          <div>
-            <Label>Ward</Label>
-            <select
-              value={ward}
+          {/* ✅ Area autocomplete */}
+          <div className="relative">
+            <Label>Area</Label>
+            <Input
+              value={area}
               onChange={(e) => {
-                setWard(e.target.value);
+                setArea(e.target.value);
                 setPage("1");
+                setAreaOpen(true);
               }}
-              className="w-full border rounded px-2 py-2"
-              disabled={!county.trim() || !constituency.trim()}
-            >
-              <option value="">Any</option>
-              {wardOptions.map((w) => (
-                <option key={w} value={w}>
-                  {w}
-                </option>
-              ))}
-            </select>
+              onFocus={() => setAreaOpen(true)}
+              onBlur={() => {
+                // small delay so click can register
+                setTimeout(() => setAreaOpen(false), 150);
+              }}
+              placeholder="Start typing..."
+            />
+
+            {areaOpen && (areaLoading || areaSuggestions.length > 0) && (
+              <div className="absolute left-0 right-0 mt-1 rounded-xl border bg-white shadow-lg z-50 max-h-64 overflow-auto">
+                {areaLoading ? (
+                  <div className="p-3 text-sm text-gray-600">Searching…</div>
+                ) : areaSuggestions.length === 0 ? (
+                  <div className="p-3 text-sm text-gray-600">No matches</div>
+                ) : (
+                  <ul className="divide-y">
+                    {areaSuggestions.map((s, idx) => (
+                      <li
+                        key={`${s.label}-${idx}`}
+                        className="p-2 hover:bg-gray-50 cursor-pointer"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setArea(s.area);
+                          setAreaOpen(false);
+                          setPage("1");
+                        }}
+                      >
+                        <div className="text-sm font-semibold">{s.area}</div>
+                        <div className="text-xs text-gray-600">
+                          {[
+                            s.county || null,
+                            s.constituency || null,
+                            s.ward || null,
+                          ]
+                            .filter(Boolean)
+                            .join(", ")}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -371,7 +433,7 @@ function BrowseInner() {
       ) : items.length === 0 ? (
         <div className="rounded-xl border p-10 text-center text-gray-600">
           <p className="font-medium">No listings match your filters.</p>
-          <p className="text-sm">Try widening your price range or removing some filters.</p>
+          <p className="text-sm">Try removing Area or widening your price range.</p>
         </div>
       ) : (
         <>

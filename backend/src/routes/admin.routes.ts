@@ -486,4 +486,32 @@ router.patch(
   }
 );
 
+// User search (for Broadcast user picker)
+router.get(
+  "/users/search",
+  requirePermission("SEND_ANNOUNCEMENTS"),
+  async (req, res) => {
+    try {
+      const q = String(req.query.q || "").trim();
+      if (!q) return res.json({ items: [] });
+
+      const items = await prisma.user.findMany({
+        where: {
+          OR: [
+            { email: { contains: q, mode: "insensitive" } },
+            { name: { contains: q, mode: "insensitive" } },
+          ],
+        },
+        select: { id: true, email: true, name: true, role: true },
+        take: 25,
+      });
+
+      return res.json({ items });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ message: "User search failed" });
+    }
+  }
+);
+
 export default router;

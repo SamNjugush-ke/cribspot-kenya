@@ -41,7 +41,7 @@ const menus: Record<Role, Item[]> = {
     { label: 'Overview', href: '/dashboard/lister', icon: Home },
     { label: 'My Listings', href: '/dashboard/lister/listings', icon: ClipboardList },
     { label: 'Create Listing', href: '/lister/list', icon: FilePlus2 },
-    { label: 'Billing & Quota', href: '/dashboard/lister/billing', icon: CreditCard },
+    { label: 'Billing', href: '/dashboard/lister/billing', icon: CreditCard },
     { label: 'Messages', href: '/dashboard/lister/messages', icon: MessageSquare },
     { label: 'Analytics', href: '/dashboard/lister/analytics', icon: BarChart3 },
     { label: 'Settings', href: '/dashboard/settings', icon: Settings },

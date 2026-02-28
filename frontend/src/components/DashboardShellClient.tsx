@@ -5,8 +5,10 @@ import { usePathname, useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import type { Role } from "@/types/user";
 import { SocketProvider } from "@/contexts/SocketProvider";
-
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
+
+// ✅ ADD THIS
+import { PermissionsProvider } from "@/components/super/PermissionsProvider";
 
 function safeJsonParse<T>(s: string): T | null {
   try {
@@ -88,23 +90,24 @@ export default function DashboardShellClient({ children }: { children: React.Rea
     );
   }
 
+  // ✅ WRAP EVERYTHING so RequirePermission stops being stuck on loading=true
   return (
-    <SocketProvider>
-      <div className="min-h-screen bg-brand-gray flex">
-        <Sidebar role={role} />
+    <PermissionsProvider>
+      <SocketProvider>
+        <div className="min-h-screen bg-brand-gray flex">
+          <Sidebar role={role} />
 
-        <div className="flex-1 min-w-0">
-          {/* Top header area */}
-          <div className="sticky top-0 z-30 border-b bg-white">
-            <div className="px-4 py-3">
-              <DashboardHeader role={role} />
+          <div className="flex-1 min-w-0">
+            <div className="sticky top-0 z-30 border-b bg-white">
+              <div className="px-4 py-3">
+                <DashboardHeader role={role} />
+              </div>
             </div>
-          </div>
 
-          {/* Page container */}
-          <main className="mx-auto max-w-7xl p-4 md:p-6">{children}</main>
+            <main className="mx-auto max-w-7xl p-4 md:p-6">{children}</main>
+          </div>
         </div>
-      </div>
-    </SocketProvider>
+      </SocketProvider>
+    </PermissionsProvider>
   );
 }

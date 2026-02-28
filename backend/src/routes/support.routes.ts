@@ -1,5 +1,8 @@
-//backend/src/routes/support.routes.ts
-import express from "express";
+// backend/src/routes/support.routes.ts
+import { Router } from "express";
+import multer from "multer";
+import { verifyToken } from "../middlewares/verifyToken";
+import { requireAuth } from "../middlewares/requireAuth";
 import {
   createTicket,
   listTickets,
@@ -7,17 +10,42 @@ import {
   replyToTicket,
   changeTicketStatus,
 } from "../controllers/support.controller";
-import { verifyToken } from "../middlewares/verifyToken";
-import { requireAuth } from "../middlewares/requireAuth";
 
-const router = express.Router();
+const router = Router();
 
-router.use(verifyToken, requireAuth);
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB
+    files: 2,
+  },
+});
 
-router.post("/tickets", createTicket);
+// ✅ CRITICAL: ensure req.user exists for requireAuth
+router.use(verifyToken);
+router.use(requireAuth);
+
+router.post(
+  "/tickets",
+  upload.fields([
+    { name: "file", maxCount: 1 },
+    { name: "files", maxCount: 2 },
+  ]),
+  createTicket
+);
+
 router.get("/tickets", listTickets);
 router.get("/tickets/:id", getTicket);
-router.post("/tickets/:id/messages", replyToTicket);
+
+router.post(
+  "/tickets/:id/messages",
+  upload.fields([
+    { name: "file", maxCount: 1 },
+    { name: "files", maxCount: 2 },
+  ]),
+  replyToTicket
+);
+
 router.patch("/tickets/:id/status", changeTicketStatus);
 
 export default router;

@@ -38,7 +38,7 @@ export type Permission =
   | "EDIT_ROLE_DEFINITIONS"
   | "VIEW_SYSTEM_LOGS"
   | "MAINTENANCE_BACKUPS"
-    "SEND_BROADCASTS";
+  | "SEND_ANNOUNCEMENTS";
 
 export type RoleDefinition = {
   id: string;

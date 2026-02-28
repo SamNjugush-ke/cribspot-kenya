@@ -33,6 +33,10 @@ import {
   User,
 } from "lucide-react";
 
+// ✅ add bell
+import NotificationsBell from "@/components/NotificationsBell";
+import { MessagesAPI } from "@/components/messages/api";
+
 type StoredUser = { id: string; name?: string | null; email: string; role?: string };
 type MeResp = { user?: StoredUser };
 
@@ -46,11 +50,6 @@ function safeJson<T>(raw: string | null): T | null {
   } catch {
     return null;
   }
-}
-
-function token() {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("rk_token");
 }
 
 function authHeaders(t?: string | null): HeadersInit {
@@ -130,6 +129,9 @@ export default function DashboardHeader({
   const [tokenState, setTokenState] = useState<string | null>(null);
   const [impersonatorToken, setImpersonatorToken] = useState<string | null>(null);
 
+  // ✅ unread messages badge
+  const [directUnread, setDirectUnread] = useState(0);
+
   const impersonatedUser = useMemo(
     () =>
       safeJson<{ id: string; email?: string; name?: string; role?: string }>(
@@ -163,11 +165,7 @@ export default function DashboardHeader({
 
     const onAuth = () => sync();
     const onStorage = (e: StorageEvent) => {
-      if (
-        e.key === "rk_token" ||
-        e.key === "rk_token_impersonator" ||
-        e.key === USER_KEY
-      ) {
+      if (e.key === "rk_token" || e.key === "rk_token_impersonator" || e.key === USER_KEY) {
         sync();
       }
     };
@@ -187,7 +185,9 @@ export default function DashboardHeader({
     let alive = true;
 
     const hydrateFromStorage = () => {
-      const stored = safeJson<StoredUser>(typeof window !== "undefined" ? localStorage.getItem(USER_KEY) : null);
+      const stored = safeJson<StoredUser>(
+        typeof window !== "undefined" ? localStorage.getItem(USER_KEY) : null
+      );
       if (alive && stored?.email) setMe(stored);
     };
 
@@ -217,7 +217,9 @@ export default function DashboardHeader({
         // Some older payloads had name missing; fallback to stored rk_user for display name
         if (user?.email) {
           if (!user.name) {
-            const stored = safeJson<StoredUser>(typeof window !== "undefined" ? localStorage.getItem(USER_KEY) : null);
+            const stored = safeJson<StoredUser>(
+              typeof window !== "undefined" ? localStorage.getItem(USER_KEY) : null
+            );
             setMe({ ...user, name: user.name ?? stored?.name ?? null });
           } else {
             setMe(user);
@@ -239,6 +241,31 @@ export default function DashboardHeader({
       alive = false;
     };
   }, [pathname, tokenState]);
+
+  // ✅ load DIRECT unread count for badge on Messages button
+  useEffect(() => {
+    let alive = true;
+
+    async function loadUnread() {
+      try {
+        if (!tokenState) {
+          if (alive) setDirectUnread(0);
+          return;
+        }
+        const c = await MessagesAPI.unreadCount("DIRECT");
+        if (alive) setDirectUnread(c || 0);
+      } catch {
+        if (alive) setDirectUnread(0);
+      }
+    }
+
+    loadUnread();
+    const t = setInterval(loadUnread, 25000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [tokenState, pathname]);
 
   const computedTitle = title || titleFromPath(pathname || "/dashboard");
   const computedSubtitle =
@@ -285,7 +312,9 @@ export default function DashboardHeader({
       onQuickSearch(needle);
     } else {
       if (role === "SUPER_ADMIN" || role === "ADMIN") {
-        router.push(`/dashboard/${role === "SUPER_ADMIN" ? "super" : "admin"}/users?q=${encodeURIComponent(needle)}`);
+        router.push(
+          `/dashboard/${role === "SUPER_ADMIN" ? "super" : "admin"}/users?q=${encodeURIComponent(needle)}`
+        );
       } else {
         router.push(`/dashboard/messages`);
       }
@@ -308,7 +337,11 @@ export default function DashboardHeader({
           </div>
 
           {canImpersonateUI && (
-            <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white" onClick={revertImpersonation}>
+            <Button
+              size="sm"
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={revertImpersonation}
+            >
               <Undo2 className="h-4 w-4 mr-2" />
               Revert
             </Button>
@@ -344,7 +377,7 @@ export default function DashboardHeader({
           </Button>
         </form>
 
-        {/* Right: actions + menu */}
+        {/* Right: actions + bell + menu */}
         <div className="flex items-center gap-2 shrink-0">
           <Link href="/">
             <Button variant="outline" className="rounded-xl2">
@@ -353,12 +386,21 @@ export default function DashboardHeader({
             </Button>
           </Link>
 
-          <Link href="/dashboard/messages">
-            <Button variant="outline" className="rounded-xl2">
+          {/* Messages with unread badge */}
+          <Link href="/dashboard/messages" className="relative">
+            <Button variant="outline" className="rounded-xl2 relative">
               <MessageSquare className="h-4 w-4 mr-2" />
               Messages
+              {directUnread > 0 && (
+                <span className="ml-2 inline-flex">
+                  <Badge className="rounded-full px-2 py-0.5">{directUnread}</Badge>
+                </span>
+              )}
             </Button>
           </Link>
+
+          {/* ✅ Bell dropdown + unread count + "Show all notifications" */}
+          <NotificationsBell />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -381,9 +423,13 @@ export default function DashboardHeader({
                 <div className="pt-1 flex flex-wrap gap-2">
                   <Badge className="rounded-full bg-brand-gray text-brand-black">{role}</Badge>
                   {isImpersonating ? (
-                    <Badge className="rounded-full bg-red-100 text-red-700 border border-red-200">Impersonating</Badge>
+                    <Badge className="rounded-full bg-red-100 text-red-700 border border-red-200">
+                      Impersonating
+                    </Badge>
                   ) : (
-                    <Badge className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">Normal</Badge>
+                    <Badge className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Normal
+                    </Badge>
                   )}
                 </div>
               </DropdownMenuLabel>
@@ -401,6 +447,14 @@ export default function DashboardHeader({
                 <Link href="/dashboard/profile" className="cursor-pointer">
                   <User className="h-4 w-4 mr-2" />
                   Profile
+                </Link>
+              </DropdownMenuItem>
+
+              {/* handy link to notifications page */}
+              <DropdownMenuItem asChild>
+                <Link href="/dashboard/notifications" className="cursor-pointer">
+                  <MessageSquare className="h-4 w-4 mr-2" />
+                  Notifications
                 </Link>
               </DropdownMenuItem>
 

@@ -21,7 +21,6 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
 
   // Fetch current profile
@@ -31,7 +30,6 @@ export default function ProfilePage() {
       const res = await apiGet<{ user: UserProfile }>('/api/auth/me');
       if (res.ok && res.data?.user) {
         setProfile(res.data.user);
-        setName(res.data.user.name);
         setPhone(res.data.user.phone ?? '');
       }
       setLoading(false);
@@ -41,15 +39,17 @@ export default function ProfilePage() {
   const handleSave = async () => {
     if (!profile) return;
     setSaving(true);
+
     const res = await apiPatch(`/api/users/${profile.id}`, {
-      name,
       phone,
     });
+
     if (res.ok) {
       alert('Profile updated successfully');
     } else {
       alert('Failed to update profile');
     }
+
     setSaving(false);
   };
 
@@ -73,23 +73,21 @@ export default function ProfilePage() {
     <section className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">My Profile</h1>
 
-      {/* Personal Info */}
       <Card>
         <CardHeader>
           <CardTitle>Personal Information</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+
+          {/* Name (Read-only) */}
           <div>
             <label className="block text-sm font-medium text-gray-700">
               Full Name
             </label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Enter full name"
-            />
+            <Input value={profile.name} disabled />
           </div>
 
+          {/* Phone (Editable) */}
           <div>
             <label className="block text-sm font-medium text-gray-700">
               Phone Number
@@ -101,9 +99,10 @@ export default function ProfilePage() {
             />
           </div>
 
+          {/* Email (Read-only) */}
           <div>
             <label className="block text-sm font-medium text-gray-700">
-              Email (read-only)
+              Email
             </label>
             <Input value={profile.email} disabled />
           </div>

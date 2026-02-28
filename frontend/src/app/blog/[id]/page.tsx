@@ -1,6 +1,5 @@
-import { notFound } from 'next/navigation';
-import Link from 'next/link';
-import { API_BASE } from '@/lib/api';
+import { notFound } from "next/navigation";
+import Link from "next/link";
 
 type Blog = {
   id: string;
@@ -15,30 +14,55 @@ type Blog = {
   tags?: { tag: { id: string; name: string; slug: string } }[];
 };
 
+function getRawApiHost() {
+  const raw =
+    process.env.NEXT_PUBLIC_API_BASE ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    "http://localhost:4000";
+  return raw.replace(/\/+$/, "");
+}
+
+// Always return ".../api"
+function getApiBase() {
+  const host = getRawApiHost();
+  return host.replace(/\/api\/?$/, "") + "/api";
+}
+
 async function fetchBlogById(id: string): Promise<Blog | null> {
-  const res = await fetch(`${API_BASE}/api/blogs/${id}`, { cache: 'no-store' });
+  const base = getApiBase();
+  const url = `${base}/blogs/${encodeURIComponent(id)}`;
+
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) return null;
   return res.json();
 }
 
 async function fetchBlogBySlug(slug: string): Promise<Blog | null> {
-  const res = await fetch(`${API_BASE}/api/blogs/slug/${slug}`, { cache: 'no-store' });
+  const base = getApiBase();
+  const url = `${base}/blogs/slug/${encodeURIComponent(slug)}`;
+
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) return null;
   return res.json();
 }
 
+/**
+ * coverImage in DB is often "/uploads/...."
+ * That is served from RAW host root, not "/api".
+ */
 const formatImageUrl = (coverImage?: string | null) => {
   if (!coverImage) return null;
-  if (coverImage.startsWith('http://') || coverImage.startsWith('https://')) return coverImage;
-  return `${API_BASE}${coverImage}`;
+  if (coverImage.startsWith("http://") || coverImage.startsWith("https://")) return coverImage;
+  const host = getRawApiHost();
+  return `${host}${coverImage.startsWith("/") ? "" : "/"}${coverImage}`;
 };
 
 function fmtDate(d?: string | null) {
-  if (!d) return '';
+  if (!d) return "";
   try {
     return new Date(d).toLocaleDateString();
   } catch {
-    return '';
+    return "";
   }
 }
 
@@ -85,9 +109,7 @@ export default async function BlogDetailPage({ params }: { params: { id: string 
           )}
 
           {blog.excerpt && (
-            <p className="mt-6 text-lg text-gray-700 leading-relaxed">
-              {blog.excerpt}
-            </p>
+            <p className="mt-6 text-lg text-gray-700 leading-relaxed">{blog.excerpt}</p>
           )}
 
           {blog.contentHtml ? (
@@ -131,7 +153,6 @@ export default async function BlogDetailPage({ params }: { params: { id: string 
             )}
           </div>
 
-          {/* ✅ CTA / extra content so sidebar isn't empty */}
           <div className="rounded-2xl border bg-[#004AAD] text-white p-5 shadow-sm">
             <div className="text-base font-semibold">Ready to find the right place?</div>
             <p className="mt-1 text-sm text-white/90">
