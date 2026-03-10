@@ -23,7 +23,10 @@ function Inner() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
-  const disabled = useMemo(() => loading || !token, [loading, token]);
+  const disabled = useMemo(
+    () => loading || !token || !password || !confirm,
+    [loading, token, password, confirm]
+  );
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,20 +38,31 @@ function Inner() {
       return;
     }
 
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+
     if (password !== confirm) {
-      setError("Passwords do not match");
+      setError("Passwords do not match.");
       return;
     }
 
     setLoading(true);
     try {
       const res = await api.post("/api/auth/reset-password", { token, password });
+
       if (!res.ok) {
-        setError((res.data as any)?.message || res.error || "Failed");
+        setError((res.data as any)?.message || res.error || "Failed to reset password.");
         return;
       }
+
       setInfo("Password updated successfully. Redirecting to login…");
+      setPassword("");
+      setConfirm("");
       setTimeout(() => router.replace("/login"), 900);
+    } catch (err: any) {
+      setError(err?.message || "Failed to reset password. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -82,6 +96,7 @@ function Inner() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
+          minLength={6}
         />
         <input
           className="w-full border rounded-lg px-3 py-2"
@@ -90,6 +105,7 @@ function Inner() {
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
           required
+          minLength={6}
         />
 
         <button

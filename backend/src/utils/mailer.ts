@@ -1,88 +1,166 @@
-import nodemailer from "nodemailer";
+import nodemailer, { Transporter } from "nodemailer";
 import dns from "node:dns";
 
-// ✅ Force IPv4 resolution (avoids IPv6 weirdness / broken routes)
 dns.setDefaultResultOrder("ipv4first");
 
 const SMTP_HOST = process.env.SMTP_HOST;
-const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 const MAIL_FROM = process.env.MAIL_FROM || SMTP_USER || "no-reply@cribspot.co.ke";
 
-function makeTransport(port: number) {
-  const secure = port === 465;
+type MailTo = string | string[];
+
+type Candidate = {
+  host: string;
+  port: number;
+};
+
+function uniqueCandidates(): Candidate[] {
+  if (!SMTP_HOST) return [];
+
+  const preferred = { host: SMTP_HOST, port: SMTP_PORT };
+  const altPort = SMTP_PORT === 465 ? 587 : 465;
+
+  const list = [
+    preferred,
+    { host: SMTP_HOST, port: altPort },
+  ];
+
+  const seen = new Set<string>();
+  return list.filter((c) => {
+    const key = `${c.host}:${c.port}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function makeTransport(candidate: Candidate): Transporter {
+  const secure = candidate.port === 465;
 
   return nodemailer.createTransport({
-    host: SMTP_HOST,
-    port,
+    host: candidate.host,
+    port: candidate.port,
     secure,
     auth:
-      SMTP_USER && SMTP_PASS ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
+      SMTP_USER && SMTP_PASS
+        ? { user: SMTP_USER, pass: SMTP_PASS }
+        : undefined,
 
-    // ✅ Make failures fast + reduce "hangs forever"
-    connectionTimeout: 12_000,
-    greetingTimeout: 12_000,
-    socketTimeout: 20_000,
+    // Timeouts
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 30000,
 
-    // ✅ TLS settings that work with most cPanel servers
+    // TLS
     ...(secure
       ? {
-          tls: { rejectUnauthorized: true },
+          tls: {
+            rejectUnauthorized: true,
+            servername: candidate.host,
+          },
         }
       : {
           requireTLS: true,
-          tls: { rejectUnauthorized: true },
+          tls: {
+            rejectUnauthorized: true,
+            servername: candidate.host,
+          },
         }),
   });
 }
 
-let transporter =
-  SMTP_HOST && SMTP_USER && SMTP_PASS ? makeTransport(SMTP_PORT) : null;
+let activeCandidate: Candidate | null =
+  SMTP_HOST && SMTP_USER && SMTP_PASS
+    ? { host: SMTP_HOST, port: SMTP_PORT }
+    : null;
 
-async function verifyNow() {
-  if (!transporter) {
+let transporter: Transporter | null =
+  activeCandidate ? makeTransport(activeCandidate) : null;
+
+async function verifyCandidate(candidate: Candidate) {
+  const testTransport = makeTransport(candidate);
+  await testTransport.verify();
+  return testTransport;
+}
+
+async function bootstrapVerify() {
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
     console.warn(
       "[MAIL] SMTP not configured (missing SMTP_HOST/SMTP_USER/SMTP_PASS)."
     );
     return;
   }
 
-  try {
-    console.log("[MAIL] verifying SMTP...", {
-      host: SMTP_HOST,
-      port: SMTP_PORT,
-      user: SMTP_USER,
-      from: MAIL_FROM,
-    });
-    await transporter.verify();
-    console.log("[MAIL] SMTP ready:", { host: SMTP_HOST, port: SMTP_PORT });
-  } catch (e: any) {
-    console.error("[MAIL] SMTP verify failed:", e?.message || e);
+  const candidates = uniqueCandidates();
 
-    // ✅ Automatic fallback: if 465 fails, try 587 (or vice versa)
-    const fallback = SMTP_PORT === 465 ? 587 : 465;
+  for (const candidate of candidates) {
     try {
-      console.log("[MAIL] trying fallback port...", {
-        host: SMTP_HOST,
-        port: fallback,
+      console.log("[MAIL] verifying SMTP...", {
+        host: candidate.host,
+        port: candidate.port,
+        user: SMTP_USER,
+        from: MAIL_FROM,
       });
-      transporter = makeTransport(fallback);
-      await transporter.verify();
-      console.log("[MAIL] SMTP ready on fallback:", {
-        host: SMTP_HOST,
-        port: fallback,
+
+      transporter = await verifyCandidate(candidate);
+      activeCandidate = candidate;
+
+      console.log("[MAIL] SMTP ready:", {
+        host: candidate.host,
+        port: candidate.port,
       });
-    } catch (e2: any) {
-      console.error("[MAIL] SMTP fallback verify failed:", e2?.message || e2);
+      return;
+    } catch (e: any) {
+      console.error("[MAIL] SMTP verify failed:", {
+        host: candidate.host,
+        port: candidate.port,
+        error: e?.message || String(e),
+      });
     }
   }
+
+  transporter = null;
+  activeCandidate = null;
 }
 
-// Verify once at startup
-verifyNow().catch(() => null);
+bootstrapVerify().catch(() => null);
 
-type MailTo = string | string[];
+async function getWorkingTransport(): Promise<Transporter> {
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
+    throw new Error("SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS.");
+  }
+
+  if (transporter && activeCandidate) {
+    return transporter;
+  }
+
+  const candidates = uniqueCandidates();
+
+  for (const candidate of candidates) {
+    try {
+      const ready = await verifyCandidate(candidate);
+      transporter = ready;
+      activeCandidate = candidate;
+
+      console.log("[MAIL] SMTP ready:", {
+        host: candidate.host,
+        port: candidate.port,
+      });
+
+      return transporter;
+    } catch (e: any) {
+      console.error("[MAIL] SMTP reconnect failed:", {
+        host: candidate.host,
+        port: candidate.port,
+        error: e?.message || String(e),
+      });
+    }
+  }
+
+  throw new Error("No working SMTP transport available.");
+}
 
 export async function sendMail(opts: {
   to: MailTo;
@@ -91,21 +169,56 @@ export async function sendMail(opts: {
   from?: string;
 }) {
   const from = opts.from || MAIL_FROM;
-
-  if (!transporter) {
-    throw new Error("SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS.");
-  }
-
-  // Re-verify lazily if needed (helps after network changes)
-  transporter.verify().catch(() => null);
-
-  // Nodemailer accepts array, but also fine to stringify
   const to = Array.isArray(opts.to) ? opts.to.filter(Boolean) : opts.to;
 
-  return transporter.sendMail({
-    from,
-    to,
-    subject: opts.subject,
-    html: opts.html,
-  });
+  const candidates = activeCandidate
+    ? [activeCandidate, ...uniqueCandidates().filter(
+        (c) => `${c.host}:${c.port}` !== `${activeCandidate!.host}:${activeCandidate!.port}`
+      )]
+    : uniqueCandidates();
+
+  let lastError: any = null;
+
+  for (const candidate of candidates) {
+    try {
+      // rebuild a fresh transport per attempt if candidate changed / transport missing
+      if (
+        !transporter ||
+        !activeCandidate ||
+        activeCandidate.host !== candidate.host ||
+        activeCandidate.port !== candidate.port
+      ) {
+        transporter = makeTransport(candidate);
+        activeCandidate = candidate;
+      }
+
+      const info = await transporter.sendMail({
+        from,
+        to,
+        subject: opts.subject,
+        html: opts.html,
+      });
+
+      console.log("[MAIL] sent:", {
+        host: candidate.host,
+        port: candidate.port,
+        to,
+        messageId: info.messageId,
+      });
+
+      return info;
+    } catch (e: any) {
+      lastError = e;
+      console.error("[MAIL] send attempt failed:", {
+        host: candidate.host,
+        port: candidate.port,
+        error: e?.message || String(e),
+      });
+
+      transporter = null;
+      activeCandidate = null;
+    }
+  }
+
+  throw lastError || new Error("Mail send failed.");
 }

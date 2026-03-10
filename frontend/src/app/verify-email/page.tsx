@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import api, { apiGet } from "@/lib/api";
+import { apiGet } from "@/lib/api";
 
 export default function VerifyEmailPage() {
   return (
@@ -20,14 +20,24 @@ function Inner() {
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
   const [msg, setMsg] = useState<string | null>(null);
 
+  const didRunRef = useRef(false);
+
   useEffect(() => {
+    if (didRunRef.current) return;
+    didRunRef.current = true;
+
     (async () => {
       if (!token) {
         setStatus("error");
         setMsg("Missing token. Please open the confirmation link from your email.");
         return;
       }
-      const res = await apiGet<{ message?: string }>("/api/auth/verify-email", { params: { token } });
+
+      const res = await apiGet<{ message?: string; ok?: boolean }>(
+        "/api/auth/verify-email",
+        { params: { token } }
+      );
+
       if (res.ok) {
         setStatus("ok");
         setMsg("Email confirmed. Redirecting to login…");
@@ -62,9 +72,12 @@ function Inner() {
       {status === "error" && (
         <div className="mt-4 space-y-2">
           <p className="text-sm text-gray-700">
-            If your link expired, go back to signup and hit <span className="font-semibold">Resend email</span>.
+            If your link expired, go back and request a fresh confirmation email.
           </p>
-          <a className="text-brand-blue hover:text-brand-red underline text-sm" href="/signup">
+          <a
+            className="text-brand-blue hover:text-brand-red underline text-sm"
+            href="/signup"
+          >
             Back to signup
           </a>
         </div>
@@ -73,7 +86,13 @@ function Inner() {
   );
 }
 
-function Shell({ title, children }: { title: string; children?: React.ReactNode }) {
+function Shell({
+  title,
+  children,
+}: {
+  title: string;
+  children?: React.ReactNode;
+}) {
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
       <div className="w-full max-w-md bg-white border rounded-xl p-4">
