@@ -21,6 +21,12 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+
+console.log("[ENV] WEB_URL =", process.env.WEB_URL);
+console.log("[ENV] FRONTEND_URL =", process.env.FRONTEND_URL);
+console.log("[ENV] SMTP_HOST =", process.env.SMTP_HOST);
+
+
 const writeLimiter = rateLimit({
   windowMs: 60_000, // 1 minute
   max: 30,          // 30 write ops/min per IP

@@ -24,7 +24,19 @@ function normalizeMsisdn(input: string | undefined | null): string | null {
 }
 
 function webUrl() {
-  return (process.env.WEB_URL || process.env.FRONTEND_URL || "https://www.cribspot.co.ke").replace(/\/+$/, "");
+  const value = (
+    process.env.WEB_URL ||
+    process.env.FRONTEND_URL ||
+    "https://www.cribspot.co.ke"
+  ).replace(/\/+$/, "");
+
+  console.log("[MAIL_LINK_BASE]", {
+    WEB_URL: process.env.WEB_URL,
+    FRONTEND_URL: process.env.FRONTEND_URL,
+    resolved: value,
+  });
+
+  return value;
 }
 
 async function trySendMailOrNull(payload: { to: string; subject: string; html: string }) {

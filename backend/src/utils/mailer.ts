@@ -8,6 +8,7 @@ const SMTP_PORT = Number(process.env.SMTP_PORT || 465);
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 const MAIL_FROM = process.env.MAIL_FROM || SMTP_USER || "no-reply@cribspot.co.ke";
+const SMTP_DEBUG = String(process.env.SMTP_DEBUG || "").trim() === "1";
 
 type MailTo = string | string[];
 
@@ -22,13 +23,10 @@ function uniqueCandidates(): Candidate[] {
   const preferred = { host: SMTP_HOST, port: SMTP_PORT };
   const altPort = SMTP_PORT === 465 ? 587 : 465;
 
-  const list = [
-    preferred,
-    { host: SMTP_HOST, port: altPort },
-  ];
-
+  const raw = [preferred, { host: SMTP_HOST, port: altPort }];
   const seen = new Set<string>();
-  return list.filter((c) => {
+
+  return raw.filter((c) => {
     const key = `${c.host}:${c.port}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -48,54 +46,33 @@ function makeTransport(candidate: Candidate): Transporter {
         ? { user: SMTP_USER, pass: SMTP_PASS }
         : undefined,
 
-    // Timeouts
     connectionTimeout: 15000,
     greetingTimeout: 15000,
     socketTimeout: 30000,
 
-    // TLS
-    ...(secure
-      ? {
-          tls: {
-            rejectUnauthorized: true,
-            servername: candidate.host,
-          },
-        }
-      : {
-          requireTLS: true,
-          tls: {
-            rejectUnauthorized: true,
-            servername: candidate.host,
-          },
-        }),
+    logger: SMTP_DEBUG,
+    debug: SMTP_DEBUG,
+
+    tls: {
+      rejectUnauthorized: true,
+      servername: candidate.host,
+    },
   });
 }
 
-let activeCandidate: Candidate | null =
-  SMTP_HOST && SMTP_USER && SMTP_PASS
-    ? { host: SMTP_HOST, port: SMTP_PORT }
-    : null;
-
-let transporter: Transporter | null =
-  activeCandidate ? makeTransport(activeCandidate) : null;
-
 async function verifyCandidate(candidate: Candidate) {
-  const testTransport = makeTransport(candidate);
-  await testTransport.verify();
-  return testTransport;
+  const transport = makeTransport(candidate);
+  await transport.verify();
+  return transport;
 }
 
 async function bootstrapVerify() {
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    console.warn(
-      "[MAIL] SMTP not configured (missing SMTP_HOST/SMTP_USER/SMTP_PASS)."
-    );
+    console.warn("[MAIL] SMTP not configured (missing SMTP_HOST/SMTP_USER/SMTP_PASS).");
     return;
   }
 
-  const candidates = uniqueCandidates();
-
-  for (const candidate of candidates) {
+  for (const candidate of uniqueCandidates()) {
     try {
       console.log("[MAIL] verifying SMTP...", {
         host: candidate.host,
@@ -104,8 +81,7 @@ async function bootstrapVerify() {
         from: MAIL_FROM,
       });
 
-      transporter = await verifyCandidate(candidate);
-      activeCandidate = candidate;
+      await verifyCandidate(candidate);
 
       console.log("[MAIL] SMTP ready:", {
         host: candidate.host,
@@ -116,51 +92,16 @@ async function bootstrapVerify() {
       console.error("[MAIL] SMTP verify failed:", {
         host: candidate.host,
         port: candidate.port,
-        error: e?.message || String(e),
+        message: e?.message || String(e),
+        code: e?.code,
+        command: e?.command,
+        response: e?.response,
       });
     }
   }
-
-  transporter = null;
-  activeCandidate = null;
 }
 
 bootstrapVerify().catch(() => null);
-
-async function getWorkingTransport(): Promise<Transporter> {
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    throw new Error("SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS.");
-  }
-
-  if (transporter && activeCandidate) {
-    return transporter;
-  }
-
-  const candidates = uniqueCandidates();
-
-  for (const candidate of candidates) {
-    try {
-      const ready = await verifyCandidate(candidate);
-      transporter = ready;
-      activeCandidate = candidate;
-
-      console.log("[MAIL] SMTP ready:", {
-        host: candidate.host,
-        port: candidate.port,
-      });
-
-      return transporter;
-    } catch (e: any) {
-      console.error("[MAIL] SMTP reconnect failed:", {
-        host: candidate.host,
-        port: candidate.port,
-        error: e?.message || String(e),
-      });
-    }
-  }
-
-  throw new Error("No working SMTP transport available.");
-}
 
 export async function sendMail(opts: {
   to: MailTo;
@@ -168,31 +109,20 @@ export async function sendMail(opts: {
   html: string;
   from?: string;
 }) {
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
+    throw new Error("SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS.");
+  }
+
   const from = opts.from || MAIL_FROM;
   const to = Array.isArray(opts.to) ? opts.to.filter(Boolean) : opts.to;
 
-  const candidates = activeCandidate
-    ? [activeCandidate, ...uniqueCandidates().filter(
-        (c) => `${c.host}:${c.port}` !== `${activeCandidate!.host}:${activeCandidate!.port}`
-      )]
-    : uniqueCandidates();
-
   let lastError: any = null;
 
-  for (const candidate of candidates) {
-    try {
-      // rebuild a fresh transport per attempt if candidate changed / transport missing
-      if (
-        !transporter ||
-        !activeCandidate ||
-        activeCandidate.host !== candidate.host ||
-        activeCandidate.port !== candidate.port
-      ) {
-        transporter = makeTransport(candidate);
-        activeCandidate = candidate;
-      }
+  for (const candidate of uniqueCandidates()) {
+    const transport = makeTransport(candidate);
 
-      const info = await transporter.sendMail({
+    try {
+      const info = await transport.sendMail({
         from,
         to,
         subject: opts.subject,
@@ -204,19 +134,28 @@ export async function sendMail(opts: {
         port: candidate.port,
         to,
         messageId: info.messageId,
+        response: info.response,
+        accepted: info.accepted,
+        rejected: info.rejected,
       });
 
       return info;
     } catch (e: any) {
       lastError = e;
+
       console.error("[MAIL] send attempt failed:", {
         host: candidate.host,
         port: candidate.port,
-        error: e?.message || String(e),
+        to,
+        message: e?.message || String(e),
+        code: e?.code,
+        command: e?.command,
+        response: e?.response,
       });
-
-      transporter = null;
-      activeCandidate = null;
+    } finally {
+      try {
+        transport.close();
+      } catch {}
     }
   }
 
