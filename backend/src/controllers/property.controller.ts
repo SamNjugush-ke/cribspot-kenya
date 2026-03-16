@@ -42,6 +42,60 @@ function normStr(v: any): string {
   return typeof v === "string" ? v.trim() : String(v ?? "").trim();
 }
 
+type PublishValidationResult = {
+  ok: boolean;
+  missing: string[];
+  message?: string;
+};
+
+function validatePropertyForPublish(input: {
+  title?: any;
+  location?: any;
+  description?: any;
+  county?: any;
+  constituency?: any;
+  ward?: any;
+  units?: any[];
+  images?: any[];
+}): PublishValidationResult {
+  const missing: string[] = [];
+
+  if (!normStr(input.title)) missing.push("title");
+  if (!normStr(input.location)) missing.push("location");
+  if (!normStr(input.description)) missing.push("description");
+  if (!normStr(input.county)) missing.push("county");
+  if (!normStr(input.constituency)) missing.push("constituency");
+  if (!normStr(input.ward)) missing.push("ward");
+
+  const units = Array.isArray(input.units) ? input.units : [];
+  if (!units.length) {
+    missing.push("unit details");
+  } else {
+    const invalidUnit = units.some((u) => {
+      const type = normStr(u?.type);
+      const bedrooms = Number(u?.bedrooms);
+      const bathrooms = Number(u?.bathrooms);
+      const rent = Number(u?.rent);
+      const available = Number(u?.available);
+      return !type || bedrooms < 1 || bathrooms < 1 || rent < 1 || available < 1;
+    });
+    if (invalidUnit) missing.push("complete unit details");
+  }
+
+  const images = Array.isArray(input.images) ? input.images.filter((img) => normStr(img?.url)) : [];
+  if (!images.length) missing.push("at least one image");
+
+  if (missing.length) {
+    return {
+      ok: false,
+      missing,
+      message: `This listing is incomplete for publishing. Missing: ${missing.join(", ")}.`,
+    };
+  }
+
+  return { ok: true, missing: [] };
+}
+
 /* =========================
    LIST / FILTER
    ========================= */
@@ -333,15 +387,23 @@ export const createProperty = async (req: Request, res: Response) => {
     const shouldPublish = publishNow === true;
 
     if (shouldPublish) {
-      if (
-        !title?.trim() ||
-        !location?.trim() ||
-        !description?.trim() ||
-        !county?.trim() ||
-        !constituency?.trim() ||
-        !ward?.trim()
-      ) {
-        return res.status(400).json({ message: "Missing required fields for publish" });
+      const validation = validatePropertyForPublish({
+        title,
+        location,
+        description,
+        county,
+        constituency,
+        ward,
+        units: Array.isArray(units) ? units : [],
+        images: Array.isArray(images) ? images : [],
+      });
+
+      if (!validation.ok) {
+        return res.status(400).json({
+          message: validation.message || "Listing is incomplete for publish",
+          missing: validation.missing,
+          code: "INCOMPLETE_LISTING",
+        });
       }
     }
 
@@ -415,23 +477,18 @@ export const createProperty = async (req: Request, res: Response) => {
 export const updateProperty = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { title, location, description, featured, units, images, amenities, county, constituency, ward, area } = req.body;
+    const { title, location, description, featured, units, amenities, county, constituency, ward, area } = req.body;
 
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
     const property = await prisma.property.findUnique({
       where: { id },
-      include: { amenities: true },
+      include: { amenities: true, units: true, images: true },
     });
     if (!property) return res.status(404).json({ message: "Property not found" });
 
-    // ✅ Ownership check (security + fixes confusing permission behavior)
     if (property.listerId !== userId) return res.status(403).json({ message: "Not your listing" });
-
-    if (property.status === "PUBLISHED" && (units || images)) {
-      return res.status(403).json({ message: "Published properties cannot change units or images." });
-    }
 
     let amenityOps: any = undefined;
     if (amenities !== undefined) {
@@ -446,9 +503,8 @@ export const updateProperty = async (req: Request, res: Response) => {
       }
     }
 
-    // ✅ Keep area aligned to location by default (unless explicitly provided)
     const nextArea =
-      normStr(area) ? normStr(area) : location !== undefined ? normStr(location) : undefined;
+      area !== undefined ? (normStr(area) ? normStr(area) : null) : location !== undefined ? normStr(location) : undefined;
 
     await prisma.property.update({
       where: { id },
@@ -465,19 +521,19 @@ export const updateProperty = async (req: Request, res: Response) => {
       },
     });
 
-    if (Array.isArray(units) && property.status !== "PUBLISHED") {
+    if (Array.isArray(units)) {
       await prisma.unit.deleteMany({ where: { propertyId: id } });
       if (units.length > 0) {
         await prisma.unit.createMany({
           data: units.map((u: any) => ({
             propertyId: id,
-            bedrooms: Number(u.bedrooms) || 0,
-            bathrooms: Number(u.bathrooms) || 0,
-            rent: Number(u.rent) || 0,
-            available: Number(u.available) || 0,
+            bedrooms: Math.max(0, Number(u.bedrooms) || 0),
+            bathrooms: Math.max(0, Number(u.bathrooms) || 0),
+            rent: Math.max(0, Number(u.rent) || 0),
+            available: Math.max(0, Number(u.available) || 0),
             type: String(u.type || "Apartment"),
-            count: Number(u.count) || 1,
-            rented: Number(u.rented) || 0,
+            count: Math.max(1, Number(u.count) || Number(u.available) || 1),
+            rented: Math.max(0, Number(u.rented) || 0),
             status: String(u.status || "AVAILABLE"),
           })),
         });
@@ -526,7 +582,14 @@ export const deleteProperty = async (req: Request, res: Response) => {
       if (fs.existsSync(propDir)) fs.rmSync(propDir, { recursive: true, force: true });
     } catch {}
 
-    await prisma.property.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.favorite.deleteMany({ where: { propertyId: id } });
+      await tx.propertyAmenity.deleteMany({ where: { propertyId: id } });
+      await tx.image.deleteMany({ where: { propertyId: id } });
+      await tx.unit.deleteMany({ where: { propertyId: id } });
+      await tx.listingBoost.deleteMany({ where: { propertyId: id } });
+      await tx.property.delete({ where: { id } });
+    });
 
     res.json({ message: "Property deleted" });
   } catch (err) {
@@ -560,23 +623,28 @@ export const publishProperty = async (req: Request, res: Response) => {
     if (!listerId) return res.status(401).json({ message: "Unauthorized" });
 
     const result = await prisma.$transaction(async (tx) => {
-      const property = await tx.property.findUnique({ where: { id } });
+      const property = await tx.property.findUnique({
+        where: { id },
+        include: { units: true, images: true },
+      });
       if (!property) return { kind: "not_found" as const };
       if (property.listerId !== listerId) return { kind: "forbidden" as const };
+
+      const validation = validatePropertyForPublish(property);
+      if (!validation.ok) {
+        return { kind: "invalid" as const, validation };
+      }
 
       if (property.status === "PUBLISHED") {
         return { kind: "ok" as const, property, quota: null };
       }
 
-      let quota = null as any;
-      if (!property.consumedSlot) {
-        quota = await consumeQuotaFIFO({
-          tx,
-          userId: listerId,
-          needListings: 1,
-          needFeatured: property.featured ? 1 : 0,
-        });
-      }
+      const quota = await consumeQuotaFIFO({
+        tx,
+        userId: listerId,
+        needListings: 1,
+        needFeatured: property.featured ? 1 : 0,
+      });
 
       const updated = await tx.property.update({
         where: { id },
@@ -584,6 +652,7 @@ export const publishProperty = async (req: Request, res: Response) => {
           status: "PUBLISHED",
           consumedSlot: true,
         },
+        include: { units: true, images: true },
       });
 
       return { kind: "ok" as const, property: updated, quota };
@@ -591,6 +660,13 @@ export const publishProperty = async (req: Request, res: Response) => {
 
     if (result.kind === "not_found") return res.status(404).json({ message: "Property not found" });
     if (result.kind === "forbidden") return res.status(403).json({ message: "Not your listing" });
+    if (result.kind === "invalid") {
+      return res.status(400).json({
+        message: result.validation.message || "Listing is incomplete for publish",
+        missing: result.validation.missing,
+        code: "INCOMPLETE_LISTING",
+      });
+    }
 
     return res.json(result);
   } catch (err: any) {
@@ -627,7 +703,10 @@ export const changePropertyStatus = async (req: Request, res: Response) => {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const property = await tx.property.findUnique({ where: { id } });
+      const property = await tx.property.findUnique({
+        where: { id },
+        include: { units: true, images: true },
+      });
       if (!property) return { kind: "not_found" as const };
       if (property.listerId !== listerId) return { kind: "forbidden" as const };
 
@@ -636,19 +715,22 @@ export const changePropertyStatus = async (req: Request, res: Response) => {
       }
 
       if (newStatus === "PUBLISHED") {
-        let quota = null as any;
-        if (!property.consumedSlot) {
-          quota = await consumeQuotaFIFO({
-            tx,
-            userId: listerId,
-            needListings: 1,
-            needFeatured: property.featured ? 1 : 0,
-          });
+        const validation = validatePropertyForPublish(property);
+        if (!validation.ok) {
+          return { kind: "invalid" as const, validation };
         }
+
+        const quota = await consumeQuotaFIFO({
+          tx,
+          userId: listerId,
+          needListings: 1,
+          needFeatured: property.featured ? 1 : 0,
+        });
 
         const updated = await tx.property.update({
           where: { id },
           data: { status: "PUBLISHED", consumedSlot: true },
+          include: { units: true, images: true },
         });
 
         return { kind: "ok" as const, updated, quota };
@@ -656,7 +738,11 @@ export const changePropertyStatus = async (req: Request, res: Response) => {
 
       const updated = await tx.property.update({
         where: { id },
-        data: { status: newStatus },
+        data: {
+          status: newStatus,
+          consumedSlot: property.status === "PUBLISHED" ? false : property.consumedSlot,
+        },
+        include: { units: true, images: true },
       });
 
       return { kind: "ok" as const, updated, quota: null };
@@ -665,6 +751,13 @@ export const changePropertyStatus = async (req: Request, res: Response) => {
     if (result.kind === "not_found") return res.status(404).json({ message: "Property not found" });
     if (result.kind === "forbidden") return res.status(403).json({ message: "Property not found or access denied" });
     if (result.kind === "no_change") return res.status(400).json({ message: "No change in status" });
+    if (result.kind === "invalid") {
+      return res.status(400).json({
+        message: result.validation.message || "Listing is incomplete for publish",
+        missing: result.validation.missing,
+        code: "INCOMPLETE_LISTING",
+      });
+    }
 
     return res.json(result);
   } catch (err: any) {

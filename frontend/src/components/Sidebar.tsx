@@ -50,6 +50,17 @@ const navByRole: Record<Role, Item[]> = {
     { label: 'Listings', href: '/dashboard/admin/listings', icon: Building2 },
     { label: 'Users', href: '/dashboard/admin/users', icon: Users },
     { label: 'Payments', href: '/dashboard/admin/payments', icon: Wallet },
+    { label: 'Subscriptions', href: '/dashboard/admin/subscriptions', icon: Receipt },
+    {
+      label: 'Blogs',
+      icon: PenSquare,
+      children: [
+        { label: 'All Posts', href: '/dashboard/admin/blogs' },
+        { label: 'Add Post', href: '/dashboard/admin/blog-editor' },
+        { label: 'Categories', href: '/dashboard/admin/categories' },
+        { label: 'Tags', href: '/dashboard/admin/tags' },
+      ],
+    },
     { label: 'Reports', href: '/dashboard/admin/reports', icon: BarChart3 },
     { label: 'Messages', href: MSG.HUB, icon: InboxIcon },
     { label: 'Broadcasts', href: MSG.BROADCASTS, icon: Tv },

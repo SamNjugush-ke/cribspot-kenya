@@ -41,10 +41,7 @@ function makeTransport(candidate: Candidate): Transporter {
     host: candidate.host,
     port: candidate.port,
     secure,
-    auth:
-      SMTP_USER && SMTP_PASS
-        ? { user: SMTP_USER, pass: SMTP_PASS }
-        : undefined,
+    auth: SMTP_USER && SMTP_PASS ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
 
     connectionTimeout: 15000,
     greetingTimeout: 15000,
@@ -108,6 +105,8 @@ export async function sendMail(opts: {
   subject: string;
   html: string;
   from?: string;
+  replyTo?: string;
+  text?: string;
 }) {
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
     throw new Error("SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS.");
@@ -125,14 +124,17 @@ export async function sendMail(opts: {
       const info = await transport.sendMail({
         from,
         to,
+        replyTo: opts.replyTo,
         subject: opts.subject,
         html: opts.html,
+        text: opts.text,
       });
 
       console.log("[MAIL] sent:", {
         host: candidate.host,
         port: candidate.port,
         to,
+        replyTo: opts.replyTo,
         messageId: info.messageId,
         response: info.response,
         accepted: info.accepted,
@@ -147,6 +149,7 @@ export async function sendMail(opts: {
         host: candidate.host,
         port: candidate.port,
         to,
+        replyTo: opts.replyTo,
         message: e?.message || String(e),
         code: e?.code,
         command: e?.command,

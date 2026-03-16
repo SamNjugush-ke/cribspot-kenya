@@ -9,7 +9,7 @@ export async function requireAuth(req: any, res: any, next: any) {
   if (!dbUser) return res.status(401).json({ error: "Unauthorized" });
 
   if (dbUser.isBanned) {
-    return res.status(403).json({ error: "Banned Account, contact admin" });
+    return res.status(403).json({ error: "Your account is currently banned from accessing the site. Please use the Contact Us page if you believe this was a mistake.", code: "ACCOUNT_BANNED" });
   }
 
   next();

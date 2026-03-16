@@ -1,5 +1,6 @@
 // backend/src/routes/admin.routes.ts
 import express from "express";
+import multer from "multer";
 import jwt from "jsonwebtoken";
 import prisma from "../utils/prisma";
 import * as bcrypt from "bcryptjs";
@@ -7,7 +8,7 @@ import * as bcrypt from "bcryptjs";
 import { verifyToken } from "../middlewares/verifyToken";
 import { requireAuth } from "../middlewares/requireAuth";
 import { requirePermission } from "../middlewares/requirePermission";
-import { adminPatchProperty } from "../controllers/admin.properties.controller";
+import { adminDeleteProperty, adminPatchProperty, adminRemovePropertyImage, adminUploadPropertyImage } from "../controllers/admin.properties.controller";
 
 import {
   getAllUsers,
@@ -22,6 +23,7 @@ import { auditLog } from "../utils/audit";
 import adminRbacRouter from "./admin.rbac.routes";
 
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // All admin routes require auth (then permissions per-route)
 router.use(verifyToken, requireAuth);
@@ -42,6 +44,22 @@ router.patch(
   "/properties/:id",
   requirePermission("APPROVE_LISTINGS"),
   adminPatchProperty
+);
+router.delete(
+  "/properties/:id",
+  requirePermission("APPROVE_LISTINGS"),
+  adminDeleteProperty
+);
+router.post(
+  "/properties/:id/images",
+  requirePermission("APPROVE_LISTINGS"),
+  upload.single("file"),
+  adminUploadPropertyImage
+);
+router.delete(
+  "/properties/:id/images/:imageId",
+  requirePermission("APPROVE_LISTINGS"),
+  adminRemovePropertyImage
 );
 
 

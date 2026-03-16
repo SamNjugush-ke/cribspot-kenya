@@ -11,6 +11,7 @@ import subscriptionPlanRoutes from "./subscriptionPlan.routes";
 import subscriptionRoutes from "./subscription.routes";
 import paymentRoutes from "./payments.routes";
 import supportRoutes from "./support.routes";
+import contactRoutes from "./contact.routes";
 
 import authRoutes from "./auth.routes";
 import blogRoutes from "./blog.routes";
@@ -23,7 +24,7 @@ import agentRoutes from "./agent.routes";
 import uploadRoutes from "./upload.routes";
 import alertRoutes from "./alert.routes";
 import adminRoutes from "./admin.routes";
-import sendBroadcast from "./admin.broadcasts.routes";;
+import sendBroadcast from "./admin.broadcasts.routes";
 
 const api = Router();
 
@@ -32,6 +33,9 @@ api.use("/users", users);
 api.use("/access/roles", accessRoles);
 api.use("/access/users", accessUsers);
 api.use("/audit", audit);
+
+// Public contact
+api.use("/contact", contactRoutes);
 
 // Domain: Listings & Amenities
 api.use("/amenities", amenityRoutes);
@@ -59,7 +63,7 @@ api.use("/uploads", uploadRoutes);
 api.use("/alerts", alertRoutes);
 api.use("/admin", adminRoutes);
 
-//Messaging
+// Messaging
 api.use("/admin/broadcasts", sendBroadcast);
 
 // Basic health for quick smoke-tests

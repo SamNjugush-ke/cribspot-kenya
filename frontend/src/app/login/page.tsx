@@ -100,6 +100,8 @@ function LoginInner() {
 
         if (code === "EMAIL_NOT_VERIFIED") {
           setErr("Please confirm your email first. Check your inbox (and spam), or resend the verification email below.");
+        } else if (code === "ACCOUNT_BANNED") {
+          setErr("Your account is currently banned from accessing the site. Please use the Contact Us page if you believe this was a mistake.");
         } else {
           setErr(msg);
         }
@@ -208,6 +210,12 @@ function LoginInner() {
             </div>
 
             {err && <p className="text-sm text-red-600">{err}</p>}
+
+            {errCode === "ACCOUNT_BANNED" && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Need to appeal? Use the <a className="underline font-medium" href="/contact">Contact Us</a> page and share your account email.
+              </div>
+            )}
 
             {errCode === "EMAIL_NOT_VERIFIED" && (
               <div className="space-y-2">

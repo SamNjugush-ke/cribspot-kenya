@@ -160,6 +160,13 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    if (user.isBanned) {
+      return res.status(403).json({
+        message: "Your account is currently banned from accessing the site. If you believe this is an error, please use the Contact Us page to reach the admin team.",
+        code: "ACCOUNT_BANNED",
+      });
+    }
+
     // ✅ Gate login on email verification (but don't lock out old accounts: default=true)
     if (!user.emailVerified) {
       return res.status(403).json({
