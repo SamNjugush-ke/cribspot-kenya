@@ -14,7 +14,6 @@ type Blog = {
   publishedAt?: string | null;
   contentHtml?: string | null;
   authorUser?: { id: string; name: string | null };
-
   categories?: { category: { id: string; name: string; slug: string } }[];
   tags?: { tag: { id: string; name: string; slug: string } }[];
 };
@@ -38,7 +37,7 @@ export default function BlogPreviewPage({ params }: { params: { id: string } }) 
     apiGet<Blog>(`/api/blogs/${params.id}`)
       .then((res) => {
         if (!mounted) return;
-        setBlog(res.json);
+        setBlog(res.json || null);
       })
       .catch((e: any) => {
         if (!mounted) return;
@@ -75,37 +74,42 @@ export default function BlogPreviewPage({ params }: { params: { id: string } }) 
 
   return (
     <div className="p-4 sm:p-6">
-      <div className="flex items-center justify-between gap-3 mb-5">
+      <div className="mb-5 flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Preview</h1>
           <p className="text-sm text-gray-600">Drafts are visible here (authenticated).</p>
         </div>
         <div className="flex gap-2">
-          <Link
-            href={`/dashboard/editor/blog-editor?id=${blog.id}`}
-            className="px-4 py-2 rounded-lg border text-sm hover:bg-gray-50"
-          >
+          <Link href={`/dashboard/editor/blog-editor?id=${blog.id}`} className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50">
             Back to editor
           </Link>
-          <Link
-            href={`/blog/${blog.slug || blog.id}`}
-            target="_blank"
-            className="px-4 py-2 rounded-lg bg-[#004AAD] text-white text-sm hover:opacity-95"
-          >
-            Open public view
-          </Link>
+          {blog.published ? (
+            <Link
+              href={`/blog/${blog.slug || blog.id}`}
+              target="_blank"
+              className="rounded-lg bg-[#004AAD] px-4 py-2 text-sm text-white hover:opacity-95"
+            >
+              Open public view
+            </Link>
+          ) : null}
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-12 gap-6 max-w-6xl mx-auto">
-        <article className="lg:col-span-9 bg-white rounded-xl border p-5">
+      {!blog.published && (
+        <div className="mx-auto mb-4 max-w-6xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          This post is still a draft, so public view is hidden until it is published.
+        </div>
+      )}
+
+      <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-12">
+        <article className="min-w-0 rounded-xl border bg-white p-5 lg:col-span-9">
           <div className="mb-3 flex items-center justify-between">
             <span
               className={[
-                'text-xs font-medium px-2 py-1 rounded-full border',
+                'rounded-full border px-2 py-1 text-xs font-medium',
                 blog.published
-                  ? 'bg-green-50 text-green-700 border-green-200'
-                  : 'bg-amber-50 text-amber-700 border-amber-200',
+                  ? 'border-green-200 bg-green-50 text-green-700'
+                  : 'border-amber-200 bg-amber-50 text-amber-700',
               ].join(' ')}
             >
               {blog.published ? 'Published' : 'Draft'}
@@ -114,29 +118,29 @@ export default function BlogPreviewPage({ params }: { params: { id: string } }) 
             <div className="text-xs text-gray-500">{blog.authorUser?.name ? `By ${blog.authorUser.name}` : ''}</div>
           </div>
 
-          <h2 className="text-2xl font-semibold mb-2">{blog.title}</h2>
+          <h2 className="mb-2 text-2xl font-semibold [overflow-wrap:anywhere]">{blog.title}</h2>
 
-          {img && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={img} alt={blog.title} className="w-full h-64 object-cover rounded-xl mb-4" />
-          )}
+          {img && <img src={img} alt={blog.title} className="mb-4 h-64 w-full rounded-xl object-cover" />}
 
-          {blog.excerpt && <p className="text-gray-700 mb-4">{blog.excerpt}</p>}
+          {blog.excerpt && <p className="mb-4 text-gray-700 [overflow-wrap:anywhere]">{blog.excerpt}</p>}
 
           {blog.contentHtml ? (
-            <div className="prose max-w-none" dangerouslySetInnerHTML={{ __html: blog.contentHtml }} />
+            <div
+              className="prose max-w-none overflow-hidden [overflow-wrap:anywhere] [&_*]: [&_*]:[overflow-wrap:anywhere] [&_img]:max-w-full [&_img]:h-auto [&_table]:w-full [&_table]:table-fixed"
+              dangerouslySetInnerHTML={{ __html: blog.contentHtml }}
+            />
           ) : (
             <p className="text-sm text-gray-600">No content yet.</p>
           )}
         </article>
 
-        <aside className="lg:col-span-3 space-y-4">
+        <aside className="space-y-4 lg:col-span-3">
           <div className="rounded-xl border bg-white p-4">
-            <div className="text-sm font-semibold mb-2">Categories</div>
+            <div className="mb-2 text-sm font-semibold">Categories</div>
             {cats.length ? (
               <div className="flex flex-wrap gap-2">
                 {cats.map((c) => (
-                  <span key={c.id} className="text-xs px-2 py-1 rounded-full border bg-gray-50">
+                  <span key={c.id} className="rounded-full border bg-gray-50 px-2 py-1 text-xs">
                     {c.name}
                   </span>
                 ))}
@@ -147,11 +151,11 @@ export default function BlogPreviewPage({ params }: { params: { id: string } }) 
           </div>
 
           <div className="rounded-xl border bg-white p-4">
-            <div className="text-sm font-semibold mb-2">Tags</div>
+            <div className="mb-2 text-sm font-semibold">Tags</div>
             {tags.length ? (
               <div className="flex flex-wrap gap-2">
                 {tags.map((t) => (
-                  <span key={t.id} className="text-xs px-2 py-1 rounded-full border bg-gray-50">
+                  <span key={t.id} className="rounded-full border bg-gray-50 px-2 py-1 text-xs">
                     {t.name}
                   </span>
                 ))}

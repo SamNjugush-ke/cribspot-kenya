@@ -23,6 +23,85 @@ function pickContentFormat(raw?: string): ContentFormat {
   return "TIPTAP";
 }
 
+function escHtml(value: any): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;");
+}
+
+function asPlainText(value: any): string {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) return value.map(asPlainText).filter(Boolean).join(" ");
+  if (typeof value === "object") {
+    if (typeof value.text === "string") return value.text;
+    if (typeof value.content === "string") return value.content;
+    if (typeof value.caption === "string") return value.caption;
+    if (typeof value.title === "string") return value.title;
+    if (typeof value.url === "string") return value.url;
+    if (value.file?.url) return asPlainText(value.file.url);
+    return Object.values(value).map(asPlainText).filter(Boolean).join(" ");
+  }
+  return "";
+}
+
+function asInlineHtml(value: any): string {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) return value.map(asInlineHtml).join("");
+  if (typeof value === "object") {
+    if (typeof value.text === "string") return value.text;
+    if (typeof value.content === "string") return value.content;
+    if (typeof value.caption === "string") return value.caption;
+    if (typeof value.title === "string") return value.title;
+    return Object.values(value).map(asInlineHtml).join("");
+  }
+  return "";
+}
+
+function getEditorJsImageUrl(data: any): string {
+  const url = data?.file?.url || data?.url || data?.src || "";
+  return typeof url === "string" ? url : asPlainText(url);
+}
+
+function renderEditorJsListItems(items: any[]): string {
+  return (items || [])
+    .map((item: any) => {
+      if (item == null) return "";
+
+      if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
+        return `<li>${String(item)}</li>`;
+      }
+
+      if (typeof item === "object") {
+        const content = asInlineHtml(item.content ?? item.text ?? item.title ?? item);
+        const childItems = Array.isArray(item.items) && item.items.length
+          ? `<ul>${renderEditorJsListItems(item.items)}</ul>`
+          : "";
+        return `<li>${content}${childItems}</li>`;
+      }
+
+      return `<li>${escHtml(asPlainText(item))}</li>`;
+    })
+    .join("");
+}
+
+function extractEditorJsTableRows(data: any): any[][] {
+  const rows = Array.isArray(data?.content)
+    ? data.content
+    : Array.isArray(data?.withHeadings) || Array.isArray(data?.rows)
+    ? data.rows
+    : [];
+
+  return Array.isArray(rows) ? rows : [];
+}
+
 /** Extract text from TipTap JSON */
 function extractTextFromTipTap(json: any): string {
   const parts: string[] = [];
@@ -42,13 +121,20 @@ function extractTextFromEditorJS(json: any): string {
     .map((b: any) => {
       if (!b || typeof b !== "object") return "";
       const d = b.data || {};
-      if (typeof d.text === "string") return d.text;
-      if (typeof d.caption === "string") return d.caption;
-      if (typeof d.title === "string") return d.title;
-      if (Array.isArray(d.items)) return d.items.join(" ");
-      return "";
+
+      switch (b.type) {
+        case "list":
+          return asPlainText(d.items);
+        case "table":
+          return asPlainText(extractEditorJsTableRows(d));
+        case "image":
+          return asPlainText([d.caption, getEditorJsImageUrl(d)]);
+        default:
+          return asPlainText(d.text ?? d.caption ?? d.title ?? d);
+      }
     })
     .filter(Boolean);
+
   return texts.join(" ").replace(/\s+/g, " ").trim();
 }
 
@@ -57,50 +143,55 @@ function renderEditorJsToHtml(json: any): string {
   try {
     const blocks = Array.isArray(json?.blocks) ? json.blocks : [];
 
-    const esc = (s: any) =>
-      String(s ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-
     return blocks
       .map((b: any) => {
         const d = b?.data || {};
+
         switch (b?.type) {
           case "header": {
             const lvl = Math.min(Math.max(Number(d.level) || 2, 1), 6);
-            return `<h${lvl}>${d.text || ""}</h${lvl}>`;
+            return `<h${lvl}>${asInlineHtml(d.text)}</h${lvl}>`;
           }
 
           case "paragraph":
-            return `<p>${d.text || ""}</p>`;
+            return `<p>${asInlineHtml(d.text)}</p>`;
 
           case "list": {
-            const tag = d.style === "ordered" ? "ol" : "ul";
+            const style = d.style === "ordered" ? "ordered" : "unordered";
+            const tag = style === "ordered" ? "ol" : "ul";
             const items = Array.isArray(d.items) ? d.items : [];
-            return `<${tag}>${items.map((it: string) => `<li>${it}</li>`).join("")}</${tag}>`;
+            return `<${tag}>${renderEditorJsListItems(items)}</${tag}>`;
           }
 
-          case "quote":
-            return `<blockquote>${d.text || ""}</blockquote>`;
+          case "quote": {
+            const caption = d.caption ? `<cite>${escHtml(asPlainText(d.caption))}</cite>` : "";
+            return `<blockquote>${asInlineHtml(d.text)}${caption}</blockquote>`;
+          }
 
           case "table": {
-            const rows = Array.isArray(d.content) ? d.content : [];
-            return `<table>${rows
-              .map((row: string[]) => `<tr>${(row || []).map((cell: string) => `<td>${cell}</td>`).join("")}</tr>`)
-              .join("")}</table>`;
+            const rows = extractEditorJsTableRows(d);
+            const useHead = !!d.withHeadings;
+            if (!rows.length) return "";
+
+            const renderCell = (cell: any, tag: "td" | "th") => `<${tag}>${asInlineHtml(cell)}</${tag}>`;
+            const head = useHead && rows[0]?.length
+              ? `<thead><tr>${rows[0].map((cell: any) => renderCell(cell, "th")).join("")}</tr></thead>`
+              : "";
+            const bodyRows = (useHead ? rows.slice(1) : rows)
+              .map((row: any[]) => `<tr>${(Array.isArray(row) ? row : []).map((cell: any) => renderCell(cell, "td")).join("")}</tr>`)
+              .join("");
+
+            return `<div class="blog-table-wrap"><table>${head}<tbody>${bodyRows}</tbody></table></div>`;
           }
 
           case "delimiter":
             return `<hr />`;
 
           case "image": {
-            // EditorJS image tool stores URL as data.file.url
-            const url = d?.file?.url || d?.url || "";
+            const url = getEditorJsImageUrl(d);
             if (!url) return "";
-            const caption = d?.caption ? `<figcaption>${esc(d.caption)}</figcaption>` : "";
-            // Keep it simple: figure + img
-            return `<figure><img src="${esc(url)}" alt="${esc(d.caption || "image")}" />${caption}</figure>`;
+            const caption = d?.caption ? `<figcaption>${escHtml(asPlainText(d.caption))}</figcaption>` : "";
+            return `<figure><img src="${escHtml(url)}" alt="${escHtml(asPlainText(d.caption || "image"))}" />${caption}</figure>`;
           }
 
           default:
@@ -112,7 +203,6 @@ function renderEditorJsToHtml(json: any): string {
     return "";
   }
 }
-
 
 /** Convert TipTap JSON into HTML (simplified) */
 function renderTipTapToHtml(json: any): string {
@@ -130,7 +220,7 @@ function renderTipTapToHtml(json: any): string {
               if (mark.type === "bold") text = `<strong>${text}</strong>`;
               if (mark.type === "italic") text = `<em>${text}</em>`;
               if (mark.type === "underline") text = `<u>${text}</u>`;
-              if (mark.type === "link") text = `<a href="${mark.attrs.href}" target="_blank">${text}</a>`;
+              if (mark.type === "link") text = `<a href="${mark.attrs.href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
             }
           }
           return text;
@@ -139,6 +229,8 @@ function renderTipTapToHtml(json: any): string {
           return `<h${node.attrs.level}>${(node.content || []).map(recur).join("")}</h${node.attrs.level}>`;
         case "bulletList":
           return `<ul>${(node.content || []).map(recur).join("")}</ul>`;
+        case "orderedList":
+          return `<ol>${(node.content || []).map(recur).join("")}</ol>`;
         case "listItem":
           return `<li>${(node.content || []).map(recur).join("")}</li>`;
         default:
@@ -167,8 +259,50 @@ function estimateReadingTime(text: string): number {
   return Math.max(1, Math.round(words / 200));
 }
 
-/* --------------- Controllers --------------- */
+function deriveContentFields(contentJson: Prisma.InputJsonValue | null, format: ContentFormat) {
+  const textPlain =
+    format === "EDITORJS" && contentJson
+      ? extractTextFromEditorJS(contentJson)
+      : format === "TIPTAP" && contentJson
+      ? extractTextFromTipTap(contentJson)
+      : "";
 
+  const contentHtml =
+    format === "EDITORJS" && contentJson
+      ? renderEditorJsToHtml(contentJson)
+      : format === "TIPTAP" && contentJson
+      ? renderTipTapToHtml(contentJson)
+      : null;
+
+  return {
+    textPlain,
+    contentHtml,
+    readingTimeMins: estimateReadingTime(textPlain),
+  };
+}
+
+function serializeBlogForRead<T extends Record<string, any>>(blog: T): T {
+  const rawContent =
+    blog.contentJson && blog.contentJson !== (Prisma as any).JsonNull
+      ? (blog.contentJson as Prisma.InputJsonValue)
+      : null;
+
+  if (!rawContent) return blog;
+
+  const format = pickContentFormat(String(blog.contentFormat || "TIPTAP"));
+  const derived = deriveContentFields(rawContent, format);
+
+  return {
+    ...blog,
+    contentJson: rawContent,
+    contentText: derived.textPlain || blog.contentText || null,
+    contentHtml: derived.contentHtml || blog.contentHtml || null,
+    readingTimeMins: derived.readingTimeMins || blog.readingTimeMins || 1,
+    excerpt: blog.excerpt || toExcerpt(rawContent, format, blog.title || ""),
+  };
+}
+
+/* --------------- Controllers --------------- */
 
 // GET /api/blogs
 export const listBlogs = async (req: Request, res: Response) => {
@@ -188,7 +322,6 @@ export const listBlogs = async (req: Request, res: Response) => {
     const take = Math.min(Math.max(parseInt(perPage, 10) || 10, 1), 50);
     const skip = (p - 1) * take;
 
-    // ✅ Fix Prisma orderBy typing (SortOrder, not string)
     const orderBy: Prisma.BlogOrderByWithRelationInput[] =
       sort === "oldest"
         ? [
@@ -200,7 +333,6 @@ export const listBlogs = async (req: Request, res: Response) => {
             { createdAt: Prisma.SortOrder.desc },
           ];
 
-    // ---- privilege check (works because route uses optionalVerifyToken)
     const user = (req as any).user as { role?: Role } | undefined;
     const isPrivileged =
       user?.role === Role.EDITOR ||
@@ -211,12 +343,6 @@ export const listBlogs = async (req: Request, res: Response) => {
     const wantsPublishedOnly = status === "published";
     const wantsAll = status === "all" || includeUnpublished === "1";
 
-    // ✅ published filter logic:
-    // Public users: ALWAYS published-only
-    // Privileged:
-    //   - published -> true
-    //   - draft -> false
-    //   - all OR includeUnpublished=1 -> undefined (both)
     let publishedFilter: boolean | undefined;
 
     if (!isPrivileged) {
@@ -224,8 +350,8 @@ export const listBlogs = async (req: Request, res: Response) => {
     } else {
       if (wantsPublishedOnly) publishedFilter = true;
       else if (wantsDraftOnly) publishedFilter = false;
-      else if (wantsAll) publishedFilter = undefined; // BOTH drafts + published
-      else publishedFilter = true; // privileged default
+      else if (wantsAll) publishedFilter = undefined;
+      else publishedFilter = true;
     }
 
     const where: Prisma.BlogWhereInput = {
@@ -275,7 +401,6 @@ export const listBlogs = async (req: Request, res: Response) => {
   }
 };
 
-
 // GET /api/blogs/:id
 export const getBlog = async (req: Request, res: Response) => {
   try {
@@ -293,17 +418,16 @@ export const getBlog = async (req: Request, res: Response) => {
     if (!blog) return res.status(404).json({ message: "Blog not found" });
 
     if (!blog.published) {
-      const u = (req as any).user; // populated only if verifyToken ran
+      const u = (req as any).user;
       const allowed = u && [Role.EDITOR, Role.ADMIN, Role.SUPER_ADMIN].includes(u.role);
       if (!allowed) return res.status(404).json({ message: "Blog not found" });
     }
 
-    res.json(blog);
+    res.json(serializeBlogForRead(blog));
   } catch (err) {
     res.status(500).json({ message: "Failed to load blog", error: err });
   }
 };
-
 
 // POST /api/blogs
 export const createBlog = async (req: Request, res: Response) => {
@@ -327,25 +451,11 @@ export const createBlog = async (req: Request, res: Response) => {
     if (!title?.trim()) return res.status(400).json({ message: "Title is required" });
 
     const format = pickContentFormat(rawFmt);
-
     const parsedJson: Prisma.InputJsonValue | null =
       raw !== undefined ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;
 
-    const textPlain =
-      format === "EDITORJS" && parsedJson
-        ? extractTextFromEditorJS(parsedJson)
-        : format === "TIPTAP" && parsedJson
-        ? extractTextFromTipTap(parsedJson)
-        : "";
-
-    const readingTimeMins = estimateReadingTime(textPlain);
+    const derived = deriveContentFields(parsedJson, format);
     const finalExcerpt = excerpt?.trim() || toExcerpt(parsedJson, format, title);
-    const contentHtml =
-      format === "EDITORJS" && parsedJson
-        ? renderEditorJsToHtml(parsedJson)
-        : format === "TIPTAP" && parsedJson
-        ? renderTipTapToHtml(parsedJson)
-        : null;
 
     const base = slugify(slugIn || title);
     const suffix = Math.random().toString(36).slice(2, 8);
@@ -357,11 +467,11 @@ export const createBlog = async (req: Request, res: Response) => {
         slug,
         coverImage: coverImage ?? null,
         excerpt: finalExcerpt,
-        contentJson: parsedJson ?? (Prisma as any).JsonNull, // 👈 important
+        contentJson: parsedJson ?? (Prisma as any).JsonNull,
         contentFormat: format,
-        contentText: textPlain,
-        contentHtml,
-        readingTimeMins,
+        contentText: derived.textPlain,
+        contentHtml: derived.contentHtml,
+        readingTimeMins: derived.readingTimeMins,
         seoTitle,
         seoDesc,
         seoKeywords,
@@ -397,31 +507,16 @@ export const updateBlog = async (req: Request, res: Response) => {
       published,
     } = req.body;
 
-    // normalize current contentJson (can be Prisma.JsonNull)
     const currentJson =
       (existing.contentJson as any) && (existing.contentJson as any) !== (Prisma as any).JsonNull
         ? (existing.contentJson as Prisma.InputJsonValue)
         : null;
 
-    let contentFormat = rawFmt ? pickContentFormat(rawFmt) : existing.contentFormat;
-    let contentJson: Prisma.InputJsonValue | null =
+    const contentFormat = rawFmt ? pickContentFormat(rawFmt) : existing.contentFormat;
+    const contentJson: Prisma.InputJsonValue | null =
       raw !== undefined ? (typeof raw === "string" ? JSON.parse(raw) : raw) : currentJson;
 
-    let contentText = "";
-    let contentHtml: string | null = null;
-    let readingTimeMins = existing.readingTimeMins ?? 1;
-
-    if (contentJson) {
-      contentText =
-        contentFormat === "EDITORJS"
-          ? extractTextFromEditorJS(contentJson)
-          : extractTextFromTipTap(contentJson);
-      contentHtml =
-        contentFormat === "EDITORJS"
-          ? renderEditorJsToHtml(contentJson)
-          : renderTipTapToHtml(contentJson);
-      readingTimeMins = estimateReadingTime(contentText);
-    }
+    const derived = deriveContentFields(contentJson, contentFormat);
 
     const nextPublished = typeof published === "boolean" ? published : existing.published;
     const nextPublishedAt = nextPublished ? existing.publishedAt ?? new Date() : null;
@@ -433,11 +528,11 @@ export const updateBlog = async (req: Request, res: Response) => {
         slug: slug ? slugify(slug) : existing.slug,
         coverImage: coverImage ?? existing.coverImage,
         excerpt: excerpt ?? existing.excerpt,
-        contentJson: (contentJson ?? (Prisma as any).JsonNull) as any, // important
+        contentJson: (contentJson ?? (Prisma as any).JsonNull) as any,
         contentFormat,
-        contentText,
-        contentHtml,
-        readingTimeMins,
+        contentText: derived.textPlain,
+        contentHtml: derived.contentHtml,
+        readingTimeMins: derived.readingTimeMins,
         seoTitle,
         seoDesc,
         seoKeywords,
@@ -518,7 +613,6 @@ export const listLatestBlogs = async (req: Request, res: Response) => {
   }
 };
 
-// duplicate blog
 export const duplicateBlog = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -537,7 +631,6 @@ export const duplicateBlog = async (req: Request, res: Response) => {
         slug,
         coverImage: blog.coverImage,
         excerpt: blog.excerpt,
-        // carry over null as Prisma.JsonNull
         contentJson:
           (blog.contentJson as any) && (blog.contentJson as any) !== (Prisma as any).JsonNull
             ? (blog.contentJson as Prisma.InputJsonValue)
@@ -582,7 +675,7 @@ export const getBlogBySlug = async (req: Request, res: Response) => {
       if (!allowed) return res.status(404).json({ message: "Blog not found" });
     }
 
-    res.json(blog);
+    res.json(serializeBlogForRead(blog));
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch blog", error: err });
   }

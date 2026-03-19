@@ -15,14 +15,10 @@ type Blog = {
 };
 
 function getRawApiHost() {
-  const raw =
-    process.env.NEXT_PUBLIC_API_BASE ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    "http://localhost:4000";
+  const raw = process.env.NEXT_PUBLIC_API_BASE || process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
   return raw.replace(/\/+$/, "");
 }
 
-// Always return ".../api"
 function getApiBase() {
   const host = getRawApiHost();
   return host.replace(/\/api\/?$/, "") + "/api";
@@ -46,10 +42,6 @@ async function fetchBlogBySlug(slug: string): Promise<Blog | null> {
   return res.json();
 }
 
-/**
- * coverImage in DB is often "/uploads/...."
- * That is served from RAW host root, not "/api".
- */
 const formatImageUrl = (coverImage?: string | null) => {
   if (!coverImage) return null;
   if (coverImage.startsWith("http://") || coverImage.startsWith("https://")) return coverImage;
@@ -75,16 +67,15 @@ export default async function BlogDetailPage({ params }: { params: { id: string 
   const tags = (blog.tags || []).map((x) => x.tag);
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-10">
-      {/* ✅ Full-width header row */}
-      <header className="mb-8">
-        <p className="text-sm text-[#004AAD] font-semibold mb-3">Property Advice</p>
+    <div className="mx-auto max-w-6xl px-4 py-10">
+      <header className="mb-8 min-w-0">
+        <p className="mb-3 text-sm font-semibold text-[#004AAD]">Property Advice</p>
 
-        <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-gray-900 leading-tight">
+        <h1 className="text-4xl font-extrabold leading-tight tracking-tight text-gray-900 [overflow-wrap:anywhere] sm:text-5xl">
           {blog.title}
         </h1>
 
-        <div className="mt-4 text-sm text-gray-500 flex flex-wrap items-center gap-2">
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-gray-500">
           {blog.publishedAt ? <span>{fmtDate(blog.publishedAt)}</span> : null}
           {blog.authorUser?.name ? (
             <>
@@ -95,25 +86,14 @@ export default async function BlogDetailPage({ params }: { params: { id: string 
         </div>
       </header>
 
-      {/* ✅ Content row: left + right */}
-      <div className="grid lg:grid-cols-12 gap-8 items-start">
-        {/* LEFT: cover image + content */}
-        <article className="lg:col-span-8">
-          {img && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={img}
-              alt={blog.title}
-              className="w-full h-[320px] sm:h-[380px] object-cover rounded-2xl border bg-white shadow-sm"
-            />
-          )}
+      <div className="grid items-start gap-8 lg:grid-cols-12">
+        <article className="min-w-0 lg:col-span-8">
+          {img && <img src={img} alt={blog.title} className="h-[320px] w-full rounded-2xl border bg-white object-cover shadow-sm sm:h-[380px]" />}
 
-          {blog.excerpt && (
-            <p className="mt-6 text-lg text-gray-700 leading-relaxed">{blog.excerpt}</p>
-          )}
+          {blog.excerpt && <p className="mt-6 text-lg leading-relaxed text-gray-700 [overflow-wrap:anywhere]">{blog.excerpt}</p>}
 
           {blog.contentHtml ? (
-            <div className="mt-6 prose prose-lg max-w-none">
+            <div className="mt-6 prose prose-lg max-w-none overflow-hidden [overflow-wrap:anywhere] [&_*]: [&_*]:[overflow-wrap:anywhere] [&_img]:max-w-full [&_img]:h-auto [&_table]:w-full [&_table]:table-fixed">
               <div dangerouslySetInnerHTML={{ __html: blog.contentHtml }} />
             </div>
           ) : (
@@ -121,14 +101,13 @@ export default async function BlogDetailPage({ params }: { params: { id: string 
           )}
         </article>
 
-        {/* RIGHT: categories + tags + CTA */}
-        <aside className="lg:col-span-4 space-y-5">
+        <aside className="space-y-5 lg:col-span-4">
           <div className="rounded-2xl border bg-white p-5 shadow-sm">
-            <div className="text-sm font-semibold mb-2">Categories</div>
+            <div className="mb-2 text-sm font-semibold">Categories</div>
             {cats.length ? (
               <div className="flex flex-wrap gap-2">
                 {cats.map((c) => (
-                  <span key={c.id} className="text-xs px-3 py-1 rounded-full border bg-gray-50">
+                  <span key={c.id} className="rounded-full border bg-gray-50 px-3 py-1 text-xs">
                     {c.name}
                   </span>
                 ))}
@@ -139,11 +118,11 @@ export default async function BlogDetailPage({ params }: { params: { id: string 
           </div>
 
           <div className="rounded-2xl border bg-white p-5 shadow-sm">
-            <div className="text-sm font-semibold mb-2">Tags</div>
+            <div className="mb-2 text-sm font-semibold">Tags</div>
             {tags.length ? (
               <div className="flex flex-wrap gap-2">
                 {tags.map((t) => (
-                  <span key={t.id} className="text-xs px-3 py-1 rounded-full border bg-gray-50">
+                  <span key={t.id} className="rounded-full border bg-gray-50 px-3 py-1 text-xs">
                     {t.name}
                   </span>
                 ))}
@@ -153,23 +132,15 @@ export default async function BlogDetailPage({ params }: { params: { id: string 
             )}
           </div>
 
-          <div className="rounded-2xl border bg-[#004AAD] text-white p-5 shadow-sm">
+          <div className="rounded-2xl bg-[#004AAD] p-5 text-white shadow-sm">
             <div className="text-base font-semibold">Ready to find the right place?</div>
-            <p className="mt-1 text-sm text-white/90">
-              Browse verified listings or post your property and reach renters faster.
-            </p>
+            <p className="mt-1 text-sm text-white/90">Browse verified listings or post your property and reach renters faster.</p>
 
             <div className="mt-4 flex flex-col gap-2">
-              <Link
-                href="/properties"
-                className="inline-flex items-center justify-center rounded-xl bg-white text-[#004AAD] font-medium px-4 py-2 hover:opacity-95"
-              >
+              <Link href="/properties" className="inline-flex items-center justify-center rounded-xl bg-white px-4 py-2 font-medium text-[#004AAD] hover:opacity-95">
                 Browse Properties
               </Link>
-              <Link
-                href="/list-property"
-                className="inline-flex items-center justify-center rounded-xl border border-white/30 px-4 py-2 hover:bg-white/10"
-              >
+              <Link href="/list-property" className="inline-flex items-center justify-center rounded-xl border border-white/30 px-4 py-2 hover:bg-white/10">
                 List a Property
               </Link>
             </div>
