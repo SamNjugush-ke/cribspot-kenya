@@ -716,7 +716,7 @@ export default function MyListingsPage() {
       </div>
 
       <Dialog open={!!editing} onOpenChange={(v) => !v && closeEdit()}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-5xl max-h-[92vh] overflow-y-auto rounded-2xl px-3 sm:px-6">
           <DialogHeader>
             <DialogTitle>Edit Property</DialogTitle>
             <DialogDescription>
@@ -730,14 +730,16 @@ export default function MyListingsPage() {
             </div>
           ) : (
             <Tabs value={editingTab} onValueChange={setEditingTab}>
-              <TabsList className="grid w-full grid-cols-3">
+              <div className="overflow-x-auto">
+              <TabsList className="inline-flex min-w-full gap-1 sm:grid sm:w-full sm:grid-cols-3">
                 <TabsTrigger value="basic">Basic Info</TabsTrigger>
                 <TabsTrigger value="units">Unit & Amenities</TabsTrigger>
                 <TabsTrigger value="images">Images</TabsTrigger>
               </TabsList>
+            </div>
 
               <TabsContent value="basic" className="space-y-4 pt-3">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div className="md:col-span-2">
                     <Label>Title</Label>
                     <Input value={editForm.title} onChange={(e) => updateEditField('title', e.target.value)} />
@@ -824,7 +826,7 @@ export default function MyListingsPage() {
                         </Button>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         <div>
                           <Label>Type</Label>
                           <Input value={unit.type} onChange={(e) => updateUnit(index, { type: e.target.value })} />
@@ -898,9 +900,9 @@ export default function MyListingsPage() {
             </Tabs>
           )}
 
-          <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={closeEdit} disabled={editBusy}>Cancel</Button>
-            <Button onClick={saveChanges} disabled={editBusy || imagesBusy} className="bg-green-600 text-white">
+          <DialogFooter className="mt-4 flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" onClick={closeEdit} disabled={editBusy} className="w-full sm:w-auto">Cancel</Button>
+            <Button onClick={saveChanges} disabled={editBusy || imagesBusy} className="w-full sm:w-auto bg-green-600 text-white">
               {editBusy ? 'Saving…' : imagesBusy ? 'Wait for image upload…' : 'Save Changes'}
             </Button>
           </DialogFooter>

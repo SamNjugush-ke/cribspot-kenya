@@ -354,7 +354,7 @@ export default function EditorHome() {
         <div className="rounded-2xl border bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <div
                   className="h-9 w-9 rounded-xl flex items-center justify-center"
                   style={{ backgroundColor: `${BRAND}15` }}
@@ -517,9 +517,9 @@ export default function EditorHome() {
             ) : (
               <div className="divide-y">
                 {draftsNeedingWork.map((b) => (
-                  <div key={b.id} className="py-3 flex items-start justify-between gap-3">
+                  <div key={b.id} className="py-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <div className="font-medium text-gray-900 line-clamp-1">{b.title}</div>
                         <Pill tone="amber">
                           <Clock className="h-3 w-3" /> Draft
@@ -541,21 +541,21 @@ export default function EditorHome() {
                       </div>
                     </div>
 
-                    <div className="flex gap-2 shrink-0">
-                      <Link href={`/dashboard/editor/preview/${b.id}`}>
-                        <Button size="sm" variant="outline">
+                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end sm:shrink-0">
+                      <Link href={`/dashboard/editor/preview/${b.id}`} className="w-full sm:w-auto">
+                        <Button size="sm" variant="outline" className="w-full sm:w-auto">
                           <Eye className="h-4 w-4 mr-1" /> Preview
                         </Button>
                       </Link>
-                      <Link href={`/dashboard/editor/blog-editor?id=${b.id}`}>
-                        <Button size="sm" variant="outline">
+                      <Link href={`/dashboard/editor/blog-editor?id=${b.id}`} className="w-full sm:w-auto">
+                        <Button size="sm" variant="outline" className="w-full sm:w-auto">
                           <Pencil className="h-4 w-4 mr-1" /> Edit
                         </Button>
                       </Link>
                       {canPublish ? (
                         <Button
                           size="sm"
-                          className="text-white"
+                          className="w-full sm:w-auto text-white"
                           style={{ backgroundColor: BRAND }}
                           onClick={() => togglePublish(b)}
                           title="Publish now"
@@ -666,7 +666,7 @@ export default function EditorHome() {
             ) : (
               <div className="divide-y">
                 {filteredRecent.slice(0, 10).map((b) => (
-                  <div key={b.id} className="py-3 flex items-start justify-between gap-3">
+                  <div key={b.id} className="py-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <div className="font-medium text-gray-900 line-clamp-1">{b.title}</div>
@@ -692,14 +692,14 @@ export default function EditorHome() {
                       </div>
                     </div>
 
-                    <div className="flex gap-2 shrink-0">
-                      <Link href={`/dashboard/editor/preview/${b.id}`}>
-                        <Button size="sm" variant="outline">
+                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end sm:shrink-0">
+                      <Link href={`/dashboard/editor/preview/${b.id}`} className="w-full sm:w-auto">
+                        <Button size="sm" variant="outline" className="w-full sm:w-auto">
                           <Eye className="h-4 w-4 mr-1" /> Preview
                         </Button>
                       </Link>
-                      <Link href={`/dashboard/editor/blog-editor?id=${b.id}`}>
-                        <Button size="sm" variant="outline">
+                      <Link href={`/dashboard/editor/blog-editor?id=${b.id}`} className="w-full sm:w-auto">
+                        <Button size="sm" variant="outline" className="w-full sm:w-auto">
                           <Pencil className="h-4 w-4 mr-1" /> Edit
                         </Button>
                       </Link>
@@ -707,6 +707,7 @@ export default function EditorHome() {
                         <Button
                           size="sm"
                           variant="outline"
+                          className="w-full sm:w-auto"
                           onClick={() => togglePublish(b)}
                           title={b.published ? 'Unpublish' : 'Publish'}
                         >

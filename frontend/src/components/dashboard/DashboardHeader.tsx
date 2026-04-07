@@ -1,11 +1,11 @@
-// frontend/src/components/dashboard/DashboardHeader.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useMemo, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { API_BASE } from "@/lib/api";
+
 import type { Role } from "@/types/user";
+import { API_BASE } from "@/lib/api";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,14 +26,15 @@ import {
   LayoutDashboard,
   LogOut,
   Mail,
+  Menu,
   MessageSquare,
   Search,
   Shield,
   Undo2,
   User,
+  X,
 } from "lucide-react";
 
-// ✅ add bell
 import NotificationsBell from "@/components/NotificationsBell";
 import { MessagesAPI } from "@/components/messages/api";
 
@@ -91,18 +92,15 @@ function notifyAuthChanged() {
 function clearAllAuth() {
   if (typeof window === "undefined") return;
 
-  // core auth
   localStorage.removeItem("rk_token");
   localStorage.removeItem(USER_KEY);
 
-  // impersonation (both conventions)
   localStorage.removeItem("rk_token_impersonator");
   localStorage.removeItem("rk_impersonated_user");
   localStorage.removeItem("rk_impersonator_user");
   localStorage.removeItem("rk_impersonator_token");
   localStorage.removeItem("rk_impersonating");
 
-  // idle/bootstrap keys
   localStorage.removeItem("rk_last_activity");
   localStorage.removeItem("rk_last_me_check");
 }
@@ -112,11 +110,17 @@ export default function DashboardHeader({
   title,
   subtitle,
   onQuickSearch,
+  mobileNavOpen = false,
+  onOpenMobileNav,
+  onCloseMobileNav,
 }: {
   role: Role;
   title?: string;
   subtitle?: string;
   onQuickSearch?: (q: string) => void;
+  mobileNavOpen?: boolean;
+  onOpenMobileNav?: () => void;
+  onCloseMobileNav?: () => void;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -124,12 +128,8 @@ export default function DashboardHeader({
   const [me, setMe] = useState<StoredUser | null>(null);
   const [loadingMe, setLoadingMe] = useState(true);
   const [q, setQ] = useState("");
-
-  // track token + impersonation token reactively (avoid reading localStorage in deps)
   const [tokenState, setTokenState] = useState<string | null>(null);
   const [impersonatorToken, setImpersonatorToken] = useState<string | null>(null);
-
-  // ✅ unread messages badge
   const [directUnread, setDirectUnread] = useState(0);
 
   const impersonatedUser = useMemo(
@@ -137,7 +137,6 @@ export default function DashboardHeader({
       safeJson<{ id: string; email?: string; name?: string; role?: string }>(
         typeof window !== "undefined" ? localStorage.getItem("rk_impersonated_user") : null
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [pathname]
   );
 
@@ -146,13 +145,11 @@ export default function DashboardHeader({
       safeJson<{ id: string; email?: string; name?: string; role?: string }>(
         typeof window !== "undefined" ? localStorage.getItem("rk_impersonator_user") : null
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [pathname]
   );
 
   const isImpersonating = !!impersonatorToken;
 
-  // Keep token + banner state fresh (same tab + storage events)
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -179,8 +176,6 @@ export default function DashboardHeader({
     };
   }, [pathname]);
 
-  // Load /me when token changes or route changes.
-  // ✅ IMPORTANT FIX: API_BASE already includes "/api", so DO NOT call `${API_BASE}/api/...`
   useEffect(() => {
     let alive = true;
 
@@ -195,7 +190,6 @@ export default function DashboardHeader({
       try {
         setLoadingMe(true);
 
-        // no token? just show storage fallback (if any) then stop
         if (!tokenState) {
           setMe(null);
           hydrateFromStorage();
@@ -204,7 +198,6 @@ export default function DashboardHeader({
 
         const res = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders(tokenState) });
         if (!res.ok) {
-          // token may be stale; fallback to storage so UI isn't blank
           hydrateFromStorage();
           return;
         }
@@ -214,7 +207,6 @@ export default function DashboardHeader({
 
         const user = json?.user ?? null;
 
-        // Some older payloads had name missing; fallback to stored rk_user for display name
         if (user?.email) {
           if (!user.name) {
             const stored = safeJson<StoredUser>(
@@ -242,7 +234,6 @@ export default function DashboardHeader({
     };
   }, [pathname, tokenState]);
 
-  // ✅ load DIRECT unread count for badge on Messages button
   useEffect(() => {
     let alive = true;
 
@@ -278,7 +269,6 @@ export default function DashboardHeader({
 
   const doLogout = () => {
     if (typeof window === "undefined") return;
-
     clearAllAuth();
     notifyAuthChanged();
     router.replace("/login");
@@ -319,115 +309,226 @@ export default function DashboardHeader({
         router.push(`/dashboard/messages`);
       }
     }
+
     setQ("");
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {isImpersonating && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 flex items-center justify-between gap-3">
-          <div className="text-sm text-red-700 flex items-center gap-2 min-w-0">
-            <Shield className="h-4 w-4 shrink-0" />
-            <span className="font-semibold shrink-0">Impersonating</span>
-            <span className="truncate">
-              {impersonatedUser?.email || me?.email || "user"}
-              {impersonatedUser?.role ? ` (${impersonatedUser.role})` : ""}
-              {impersonatorUser?.email ? ` · Original: ${impersonatorUser.email}` : ""}
-            </span>
+        <div className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-start gap-2 text-sm text-red-700">
+            <Shield className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="min-w-0">
+              <div className="font-semibold">Impersonating</div>
+              <div className="truncate">
+                {impersonatedUser?.email || me?.email || "user"}
+                {impersonatedUser?.role ? ` (${impersonatedUser.role})` : ""}
+                {impersonatorUser?.email ? ` · Original: ${impersonatorUser.email}` : ""}
+              </div>
+            </div>
           </div>
 
           {canImpersonateUI && (
             <Button
               size="sm"
-              className="bg-red-600 hover:bg-red-700 text-white"
+              className="bg-red-600 text-white hover:bg-red-700 self-start sm:self-auto"
               onClick={revertImpersonation}
             >
-              <Undo2 className="h-4 w-4 mr-2" />
+              <Undo2 className="h-4 w-4" />
               Revert
             </Button>
           )}
         </div>
       )}
 
-      <div className="h-14 flex items-center justify-between gap-3">
-        {/* Left: title */}
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="h-9 w-9 rounded-xl2 bg-brand-blue/10 flex items-center justify-center text-brand-blue font-bold ring-1 ring-brand-blue/20">
-            {initials(me?.name || me?.email || "U")}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={mobileNavOpen ? onCloseMobileNav : onOpenMobileNav}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-white text-gray-700 shadow-sm md:hidden"
+              aria-label={mobileNavOpen ? "Close navigation" : "Open navigation"}
+            >
+              {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl2 bg-brand-blue/10 font-bold text-brand-blue ring-1 ring-brand-blue/20">
+              {initials(me?.name || me?.email || "U")}
+            </div>
+
+            <div className="min-w-0">
+              <div className="truncate text-base font-semibold text-gray-900 sm:text-lg">
+                {computedTitle}
+              </div>
+              <div className="line-clamp-2 text-xs text-gray-500 sm:text-sm">
+                {computedSubtitle}
+              </div>
+            </div>
           </div>
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-gray-900 truncate">{computedTitle}</div>
-            <div className="text-xs text-gray-500 truncate">{computedSubtitle}</div>
+
+          <div className="hidden lg:flex lg:items-center lg:gap-2 lg:pl-4">
+            <Link href="/">
+              <Button variant="outline" className="rounded-xl2">
+                <Home className="h-4 w-4" />
+                Home
+              </Button>
+            </Link>
+
+            <Link href="/dashboard/messages">
+              <Button variant="outline" className="rounded-xl2">
+                <MessageSquare className="h-4 w-4" />
+                Messages
+                {directUnread > 0 ? (
+                  <Badge className="ml-1 rounded-full px-2 py-0.5">{directUnread}</Badge>
+                ) : null}
+              </Button>
+            </Link>
+
+            <NotificationsBell />
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button className="max-w-[220px] rounded-xl2 bg-brand-blue text-white hover:bg-brand-sky">
+                  <User className="h-4 w-4 shrink-0" />
+                  <span className="truncate">
+                    {loadingMe ? "Loading…" : me ? me.name || me.email || "Account" : "Account"}
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 opacity-90" />
+                </Button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent align="end" className="w-[320px] max-w-[calc(100vw-2rem)]">
+                <DropdownMenuLabel className="space-y-1">
+                  <div className="truncate font-semibold">{me?.name || "Account"}</div>
+                  <div className="flex items-center gap-1 text-xs text-gray-600">
+                    <Mail className="h-3.5 w-3.5" />
+                    <span className="truncate">{me?.email || "—"}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <Badge className="rounded-full bg-brand-gray text-brand-black">{role}</Badge>
+                    {isImpersonating ? (
+                      <Badge className="rounded-full border border-red-200 bg-red-100 text-red-700">
+                        Impersonating
+                      </Badge>
+                    ) : (
+                      <Badge className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">
+                        Normal
+                      </Badge>
+                    )}
+                  </div>
+                </DropdownMenuLabel>
+
+                <DropdownMenuSeparator />
+
+                <DropdownMenuItem asChild>
+                  <Link href={roleHome(role)} className="cursor-pointer">
+                    <LayoutDashboard className="mr-2 h-4 w-4" />
+                    Dashboard home
+                  </Link>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem asChild>
+                  <Link href="/dashboard/profile" className="cursor-pointer">
+                    <User className="mr-2 h-4 w-4" />
+                    Profile
+                  </Link>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem asChild>
+                  <Link href="/dashboard/notifications" className="cursor-pointer">
+                    <MessageSquare className="mr-2 h-4 w-4" />
+                    Notifications
+                  </Link>
+                </DropdownMenuItem>
+
+                {canImpersonateUI && isImpersonating && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-red-700 focus:text-red-700"
+                      onClick={revertImpersonation}
+                    >
+                      <Undo2 className="mr-2 h-4 w-4" />
+                      Revert impersonation
+                    </DropdownMenuItem>
+                  </>
+                )}
+
+                <DropdownMenuSeparator />
+
+                <DropdownMenuItem onClick={doLogout} className="text-red-600 focus:text-red-600">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Logout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
-        {/* Middle: quick search */}
-        <form onSubmit={submitSearch} className="hidden lg:flex items-center gap-2 flex-1 max-w-xl">
-          <div className="relative w-full">
-            <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <form onSubmit={submitSearch} className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <Input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder={role === "SUPER_ADMIN" || role === "ADMIN" ? "Quick search users…" : "Search…"}
-              className="pl-9 rounded-xl2"
+              className="h-11 rounded-xl2 pl-9"
             />
           </div>
-          <Button type="submit" className="bg-brand-blue text-white hover:bg-brand-sky rounded-xl2">
+
+          <Button type="submit" className="h-11 rounded-xl2 bg-brand-blue px-4 text-white hover:bg-brand-sky sm:px-5">
             Go
           </Button>
         </form>
 
-        {/* Right: actions + bell + menu */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 lg:hidden">
           <Link href="/">
             <Button variant="outline" className="rounded-xl2">
-              <Home className="h-4 w-4 mr-2" />
-              Home
+              <Home className="h-4 w-4" />
+              <span className="hidden xs:inline">Home</span>
             </Button>
           </Link>
 
-          {/* Messages with unread badge */}
-          <Link href="/dashboard/messages" className="relative">
-            <Button variant="outline" className="rounded-xl2 relative">
-              <MessageSquare className="h-4 w-4 mr-2" />
+          <Link href="/dashboard/messages">
+            <Button variant="outline" className="rounded-xl2">
+              <MessageSquare className="h-4 w-4" />
               Messages
-              {directUnread > 0 && (
-                <span className="ml-2 inline-flex">
-                  <Badge className="rounded-full px-2 py-0.5">{directUnread}</Badge>
-                </span>
-              )}
+              {directUnread > 0 ? (
+                <Badge className="ml-1 rounded-full px-2 py-0.5">{directUnread}</Badge>
+              ) : null}
             </Button>
           </Link>
 
-          {/* ✅ Bell dropdown + unread count + "Show all notifications" */}
           <NotificationsBell />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button className="rounded-xl2 bg-brand-blue text-white hover:bg-brand-sky">
-                <User className="h-4 w-4 mr-2" />
-                <span className="max-w-[120px] truncate">
+              <Button className="max-w-full rounded-xl2 bg-brand-blue text-white hover:bg-brand-sky">
+                <User className="h-4 w-4 shrink-0" />
+                <span className="max-w-[120px] truncate sm:max-w-[180px]">
                   {loadingMe ? "Loading…" : me ? me.name || me.email || "Account" : "Account"}
                 </span>
-                <ChevronDown className="h-4 w-4 ml-2 opacity-90" />
+                <ChevronDown className="h-4 w-4 shrink-0 opacity-90" />
               </Button>
             </DropdownMenuTrigger>
 
-            <DropdownMenuContent align="end" className="w-[320px]">
+            <DropdownMenuContent align="end" className="w-[320px] max-w-[calc(100vw-1rem)]">
               <DropdownMenuLabel className="space-y-1">
-                <div className="font-semibold truncate">{me?.name || "Account"}</div>
-                <div className="text-xs text-gray-600 flex items-center gap-1">
+                <div className="truncate font-semibold">{me?.name || "Account"}</div>
+                <div className="flex items-center gap-1 text-xs text-gray-600">
                   <Mail className="h-3.5 w-3.5" />
                   <span className="truncate">{me?.email || "—"}</span>
                 </div>
-                <div className="pt-1 flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 pt-1">
                   <Badge className="rounded-full bg-brand-gray text-brand-black">{role}</Badge>
                   {isImpersonating ? (
-                    <Badge className="rounded-full bg-red-100 text-red-700 border border-red-200">
+                    <Badge className="rounded-full border border-red-200 bg-red-100 text-red-700">
                       Impersonating
                     </Badge>
                   ) : (
-                    <Badge className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <Badge className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">
                       Normal
                     </Badge>
                   )}
@@ -438,22 +539,21 @@ export default function DashboardHeader({
 
               <DropdownMenuItem asChild>
                 <Link href={roleHome(role)} className="cursor-pointer">
-                  <LayoutDashboard className="h-4 w-4 mr-2" />
+                  <LayoutDashboard className="mr-2 h-4 w-4" />
                   Dashboard home
                 </Link>
               </DropdownMenuItem>
 
               <DropdownMenuItem asChild>
                 <Link href="/dashboard/profile" className="cursor-pointer">
-                  <User className="h-4 w-4 mr-2" />
+                  <User className="mr-2 h-4 w-4" />
                   Profile
                 </Link>
               </DropdownMenuItem>
 
-              {/* handy link to notifications page */}
               <DropdownMenuItem asChild>
                 <Link href="/dashboard/notifications" className="cursor-pointer">
-                  <MessageSquare className="h-4 w-4 mr-2" />
+                  <MessageSquare className="mr-2 h-4 w-4" />
                   Notifications
                 </Link>
               </DropdownMenuItem>
@@ -461,8 +561,11 @@ export default function DashboardHeader({
               {canImpersonateUI && isImpersonating && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem className="text-red-700 focus:text-red-700" onClick={revertImpersonation}>
-                    <Undo2 className="h-4 w-4 mr-2" />
+                  <DropdownMenuItem
+                    className="text-red-700 focus:text-red-700"
+                    onClick={revertImpersonation}
+                  >
+                    <Undo2 className="mr-2 h-4 w-4" />
                     Revert impersonation
                   </DropdownMenuItem>
                 </>
@@ -471,29 +574,13 @@ export default function DashboardHeader({
               <DropdownMenuSeparator />
 
               <DropdownMenuItem onClick={doLogout} className="text-red-600 focus:text-red-600">
-                <LogOut className="h-4 w-4 mr-2" />
+                <LogOut className="mr-2 h-4 w-4" />
                 Logout
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
-
-      {/* Small-screen search */}
-      <form onSubmit={submitSearch} className="lg:hidden flex items-center gap-2">
-        <div className="relative w-full">
-          <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <Input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder={role === "SUPER_ADMIN" || role === "ADMIN" ? "Quick search users…" : "Search…"}
-            className="pl-9 rounded-xl2"
-          />
-        </div>
-        <Button type="submit" className="bg-brand-blue text-white hover:bg-brand-sky rounded-xl2">
-          Go
-        </Button>
-      </form>
     </div>
   );
 }

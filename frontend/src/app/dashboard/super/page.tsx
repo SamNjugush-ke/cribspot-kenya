@@ -513,26 +513,28 @@ function SuperOverviewInner() {
         </CardHeader>
         <CardContent className="p-4 pt-2">
           <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
-            <TabsList className="grid grid-cols-3 w-full bg-brand-gray rounded-xl2 p-1">
-              <TabsTrigger
-                value="highlights"
-                className="rounded-lg data-[state=active]:bg-brand-blue data-[state=active]:text-white"
-              >
-                Highlights
-              </TabsTrigger>
-              <TabsTrigger
-                value="ops"
-                className="rounded-lg data-[state=active]:bg-brand-blue data-[state=active]:text-white"
-              >
-                Ops
-              </TabsTrigger>
-              <TabsTrigger
-                value="insights"
-                className="rounded-lg data-[state=active]:bg-brand-blue data-[state=active]:text-white"
-              >
-                Insights
-              </TabsTrigger>
-            </TabsList>
+            <div className="overflow-x-auto">
+              <TabsList className="inline-flex min-w-full gap-1 bg-brand-gray rounded-xl2 p-1 sm:grid sm:w-full sm:grid-cols-3">
+                <TabsTrigger
+                  value="highlights"
+                  className="min-w-[120px] rounded-lg data-[state=active]:bg-brand-blue data-[state=active]:text-white"
+                >
+                  Highlights
+                </TabsTrigger>
+                <TabsTrigger
+                  value="ops"
+                  className="min-w-[120px] rounded-lg data-[state=active]:bg-brand-blue data-[state=active]:text-white"
+                >
+                  Ops
+                </TabsTrigger>
+                <TabsTrigger
+                  value="insights"
+                  className="min-w-[120px] rounded-lg data-[state=active]:bg-brand-blue data-[state=active]:text-white"
+                >
+                  Insights
+                </TabsTrigger>
+              </TabsList>
+            </div>
 
             {/* Highlights */}
             <TabsContent value="highlights" className="mt-4 space-y-4">
@@ -614,12 +616,12 @@ function SuperOverviewInner() {
                 </Card>
               </div>
 
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="font-semibold text-brand-black">Recent listings</div>
                 <Link href="/dashboard/super/listings">
                   <Button
                     variant="outline"
-                    className="border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white"
+                    className="w-full sm:w-auto border-brand-blue text-brand-blue hover:bg-brand-blue hover:text-white"
                   >
                     Open listings
                     <ArrowRight className="h-4 w-4" />
@@ -628,24 +630,16 @@ function SuperOverviewInner() {
               </div>
 
               <div className="rounded-xl2 border border-border overflow-hidden bg-brand-white shadow-soft">
-                <div className="grid grid-cols-12 bg-brand-gray px-4 py-2 text-xs font-semibold text-brand-black">
-                  <div className="col-span-5">Title</div>
-                  <div className="col-span-3">Location</div>
-                  <div className="col-span-2">Status</div>
-                  <div className="col-span-2 text-right">Created</div>
-                </div>
-
-                <div className="divide-y">
+                <div className="divide-y sm:hidden">
                   {derived.recentListings.map((p) => (
-                    <div
-                      key={p.id}
-                      className="grid grid-cols-12 px-4 py-3 text-sm hover:bg-brand-gray/60 transition"
-                    >
-                      <div className="col-span-5 truncate text-brand-black font-medium">{p.title}</div>
-                      <div className="col-span-3 truncate text-brand-black/70">
+                    <div key={p.id} className="px-4 py-3 space-y-2">
+                      <div className="font-medium text-brand-black line-clamp-2">{p.title}</div>
+
+                      <div className="text-sm text-brand-black/70">
                         {(p.location ?? "—") + (p.county ? ` • ${p.county}` : "")}
                       </div>
-                      <div className="col-span-2">
+
+                      <div className="flex flex-wrap items-center gap-2">
                         <Badge
                           className={
                             p.status === "PUBLISHED"
@@ -659,9 +653,10 @@ function SuperOverviewInner() {
                         >
                           {p.status}
                         </Badge>
-                      </div>
-                      <div className="col-span-2 text-right text-brand-black/60">
-                        {new Date(p.createdAt).toLocaleDateString()}
+
+                        <span className="text-xs text-brand-black/60">
+                          Created {new Date(p.createdAt).toLocaleDateString()}
+                        </span>
                       </div>
                     </div>
                   ))}
@@ -669,6 +664,53 @@ function SuperOverviewInner() {
                   {!derived.recentListings.length && (
                     <div className="px-4 py-8 text-center text-brand-black/60">No listings yet.</div>
                   )}
+                </div>
+
+                <div className="hidden sm:block">
+                  <div className="grid grid-cols-12 bg-brand-gray px-4 py-2 text-xs font-semibold text-brand-black">
+                    <div className="col-span-5">Title</div>
+                    <div className="col-span-3">Location</div>
+                    <div className="col-span-2">Status</div>
+                    <div className="col-span-2 text-right">Created</div>
+                  </div>
+
+                  <div className="divide-y">
+                    {derived.recentListings.map((p) => (
+                      <div
+                        key={p.id}
+                        className="grid grid-cols-12 px-4 py-3 text-sm hover:bg-brand-gray/60 transition"
+                      >
+                        <div className="col-span-5 truncate text-brand-black font-medium">{p.title}</div>
+                        <div className="col-span-3 truncate text-brand-black/70">
+                          {(p.location ?? "—") + (p.county ? ` • ${p.county}` : "")}
+                        </div>
+                        <div className="col-span-2">
+                          <div className="self-start sm:self-auto">
+                            <Badge
+                              className={
+                                p.status === "PUBLISHED"
+                                  ? "bg-brand-blue text-white rounded-full"
+                                  : p.status === "ARCHIVED"
+                                  ? "bg-brand-red text-white rounded-full"
+                                  : p.status === "DRAFT"
+                                  ? "bg-yellow-500 text-white rounded-full"
+                                  : "bg-brand-gray text-brand-black rounded-full"
+                              }
+                            >
+                              {p.status}
+                            </Badge>
+                          </div>
+                        </div>
+                        <div className="col-span-2 text-right text-brand-black/60 whitespace-nowrap">
+                          {new Date(p.createdAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                    ))}
+
+                    {!derived.recentListings.length && (
+                      <div className="px-4 py-8 text-center text-brand-black/60">No listings yet.</div>
+                    )}
+                  </div>
                 </div>
               </div>
             </TabsContent>
@@ -711,13 +753,13 @@ function SuperOverviewInner() {
                 </div>
               </div>
 
-              <div className="grid gap-3 lg:grid-cols-2">
+              <div className="grid gap-3 xl:grid-cols-2">
                 <Card className="rounded-xl2 border border-border shadow-soft">
                   <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="font-semibold text-brand-black">Listings preview</div>
                       <Link href="/dashboard/super/listings">
-                        <Button className="bg-brand-blue text-white hover:bg-brand-sky" size="sm">
+                        <Button className="w-full sm:w-auto bg-brand-blue text-white hover:bg-brand-sky" size="sm">
                           Open manager
                           <ArrowRight className="h-4 w-4" />
                         </Button>
@@ -725,7 +767,7 @@ function SuperOverviewInner() {
                     </div>
                     <div className="mt-3 space-y-2">
                       {derived.filteredPreview.map((p) => (
-                        <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
+                        <div key={p.id} className="flex flex-col gap-2 rounded-xl border border-border/70 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
                           <div className="min-w-0">
                             <div className="truncate text-brand-black font-medium">{p.title}</div>
                             <div className="truncate text-brand-black/60 text-xs">

@@ -1,0 +1,12 @@
+@theme {
+  --color-brand-blue: #004AAD;
+  --color-brand-red:  #D62828;
+  --color-brand-sky:  #3FA9F5;
+  --color-brand-black:#1E1E1E;
+  --color-brand-gray: #F4F4F4;
+  --color-brand-white:#FFFFFF;
+
+  /* optional rounded+shadow tokens you've been using */
+  --shadow-soft: 0 6px 24px rgba(0,0,0,0.06);
+  --radius-xl2: 1.25rem;
+}

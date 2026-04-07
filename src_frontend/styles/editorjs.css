@@ -1,0 +1,38 @@
+
+/* container & content width */
+.editorjs-wrapper .ce-block__content,
+.editorjs-wrapper .ce-toolbar__content {
+  max-width: 720px;   /* comfortable reading width */
+}
+
+.editorjs-wrapper .ce-block {
+  padding: .25rem 0;
+}
+
+/* toolbar buttons polish */
+.editorjs-wrapper .ce-toolbar__plus,
+.editorjs-wrapper .ce-toolbar__settings-btn {
+  border-radius: 8px;
+  background: #f3f4f6;
+}
+
+/* popover */
+.editorjs-wrapper .ce-popover {
+  border-radius: 10px;
+}
+
+/* inputs (e.g. Quote, Table) */
+.editorjs-wrapper .cdx-input {
+  border-radius: 10px;
+}
+
+/* images full-bleed (optional) */
+.editorjs-wrapper .image-tool__image-picture {
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+/* nice typography when previewing */
+.prose-blog {
+  @apply prose prose-lg max-w-none;
+}

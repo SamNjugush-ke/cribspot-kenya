@@ -545,15 +545,15 @@ export default function ListerDashboardHome() {
             </CardTitle>
             <CardDescription>Quickly continue where you left off.</CardDescription>
           </div>
-          <div className="flex gap-2">
-            <Link href="/dashboard/lister/list">
-              <Button size="sm" className="bg-[#004AAD] hover:bg-[#00398a]">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <Link href="/dashboard/lister/list" className="w-full sm:w-auto">
+              <Button size="sm" className="w-full sm:w-auto bg-[#004AAD] hover:bg-[#00398a]">
                 <Plus className="h-4 w-4 mr-2" />
                 Add new
               </Button>
             </Link>
-            <Link href="/dashboard/lister/list">
-              <Button size="sm" variant="outline">
+            <Link href="/dashboard/lister/listings" className="w-full sm:w-auto">
+              <Button size="sm" variant="outline" className="w-full sm:w-auto">
                 View all
               </Button>
             </Link>
@@ -579,7 +579,7 @@ export default function ListerDashboardHome() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {recent.map((p) => (
                 <div key={p.id} className="rounded-xl border p-4 hover:shadow-sm transition">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="font-semibold text-gray-900 line-clamp-1">{p.title}</div>
                       <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -597,9 +597,9 @@ export default function ListerDashboardHome() {
                       </div>
                     </div>
 
-                    <div className="flex gap-2">
-                      <Link href="/dashboard/lister/list">
-                        <Button size="sm" variant="outline">
+                    <div className="flex w-full sm:w-auto">
+                      <Link href="/dashboard/lister/listings" className="w-full sm:w-auto">
+                        <Button size="sm" variant="outline" className="w-full sm:w-auto">
                           <Eye className="h-4 w-4 mr-2" />
                           Manage
                         </Button>
