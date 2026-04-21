@@ -1,7 +1,5 @@
-// frontend/src/app/layout.tsx
 import "./globals.css";
 import LayoutShell from "./layout-shell";
-import { GoogleAnalytics } from "@next/third-parties/google";
 import Script from "next/script";
 
 export const metadata = {
@@ -23,7 +21,26 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        {/* Google AdSense */}
+        {gaId ? (
+          <>
+            <Script
+              id="ga-src"
+              async
+              strategy="afterInteractive"
+              src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
+            />
+            <Script id="ga-inline" strategy="afterInteractive">
+              {`
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                window.gtag = gtag;
+                gtag('js', new Date());
+                gtag('config', '${gaId}');
+              `}
+            </Script>
+          </>
+        ) : null}
+
         <Script
           id="adsense-script"
           async
@@ -36,9 +53,6 @@ export default function RootLayout({
       <body className="min-h-screen flex flex-col">
         <LayoutShell>{children}</LayoutShell>
       </body>
-
-      {/* Google Analytics */}
-      {gaId ? <GoogleAnalytics gaId={gaId} /> : null}
     </html>
   );
 }
