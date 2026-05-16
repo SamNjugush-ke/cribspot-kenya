@@ -1,10 +1,25 @@
 // src/components/ListingCard.tsx
+"use client";
+
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { currencyKES } from "@/lib/utils";
 import type { Property } from "@/lib/types";
-import { MapPin, Heart, Star } from "lucide-react";
+import { CalendarDays, Heart, MapPin, Star } from "lucide-react";
 import { API_BASE } from "@/lib/api";
+
+function formatDateListed(value?: string | null) {
+  if (!value) return "Date listed unavailable";
+
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "Date listed unavailable";
+
+  return d.toLocaleDateString("en-KE", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
 
 export function ListingCard({ item }: { item: Property }) {
   const detailsHref = `/properties/${item.id}`;
@@ -29,7 +44,7 @@ export function ListingCard({ item }: { item: Property }) {
   const [favorited, setFavorited] = useState(false);
 
   useEffect(() => {
-    // preload favorites if needed
+    // preload favorites if needed later
   }, [item.id]);
 
   async function toggleFavorite() {
@@ -66,7 +81,6 @@ export function ListingCard({ item }: { item: Property }) {
             className="w-full h-40 object-cover transition-transform duration-300 hover:scale-105 cursor-pointer"
           />
 
-          {/* Price overlay */}
           <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white p-2 text-sm font-semibold">
             {minRent === maxRent
               ? `KES ${currencyKES(minRent)} / month`
@@ -74,7 +88,6 @@ export function ListingCard({ item }: { item: Property }) {
           </div>
         </Link>
 
-        {/* Status badge */}
         {statusLabel && (
           <span
             className={`absolute top-2 left-2 text-xs px-2 py-1 rounded-full font-medium ${
@@ -87,7 +100,6 @@ export function ListingCard({ item }: { item: Property }) {
           </span>
         )}
 
-        {/* Featured badge */}
         {item.featured && (
           <span className="absolute top-2 left-20 bg-brand-red text-white text-xs px-2 py-1 rounded-full font-semibold flex items-center gap-1 shadow">
             <Star className="h-3 w-3 fill-yellow-300 text-yellow-300" />
@@ -95,7 +107,6 @@ export function ListingCard({ item }: { item: Property }) {
           </span>
         )}
 
-        {/* Favorite icon */}
         <button
           type="button"
           className="absolute top-2 right-2 p-1 rounded-full bg-white/80 hover:bg-white transition z-10"
@@ -114,7 +125,7 @@ export function ListingCard({ item }: { item: Property }) {
         </button>
       </div>
 
-      <div className="p-3 space-y-1">
+      <div className="p-3 space-y-1.5">
         <h3 className="font-semibold line-clamp-1">
           <Link href={detailsHref} className="hover:underline">
             {item.title}
@@ -126,6 +137,11 @@ export function ListingCard({ item }: { item: Property }) {
           {item.area ? `${item.area}, ` : ""}
           {item.location || ""}
           {item.county ? ` — ${item.county}` : ""}
+        </p>
+
+        <p className="text-xs text-gray-500 flex items-center gap-1">
+          <CalendarDays className="h-3.5 w-3.5 text-brand-blue" />
+          Date listed: {formatDateListed(item.createdAt)}
         </p>
 
         {bedrooms > 0 || bathrooms > 0 ? (

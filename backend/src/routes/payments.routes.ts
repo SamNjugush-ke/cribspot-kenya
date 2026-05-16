@@ -1,6 +1,5 @@
 // backend/src/routes/payments.routes.ts
 import express from "express";
-import prisma from "../utils/prisma";
 import {
   initMpesaPayment,
   mpesaCallback,
@@ -13,42 +12,26 @@ import { requirePermission } from "../middlewares/requirePermission";
 
 const router = express.Router();
 
-// Initiate STK (authenticated)
+// Initiate STK payment. Authenticated only.
 router.post("/mpesa/init", verifyToken, requireAuth, initMpesaPayment);
 router.post("/checkout", verifyToken, requireAuth, initMpesaPayment);
 router.post("/stkpush", verifyToken, requireAuth, initMpesaPayment);
 
-// Provider callbacks (unauthenticated)
-// Keep both routes pointing to the SAME handler (so you can swap URLs without redeploying)
+// Provider callbacks. Unauthenticated because Safaricom calls these.
 router.post("/mpesa/callback", mpesaCallback);
 router.post("/lnm-callback", mpesaCallback);
 
-// My payments
+// Current user's payment history.
 router.get("/mine", verifyToken, requireAuth, getMyPayments);
 
-// Admin list payments
-//router.get("/", verifyToken, requireAuth, requirePermission("VIEW_TRANSACTIONS_ALL"), listAllPayments);
+// Admin / super-admin transaction list.
+// Uses the controller with filters and plan/user includes.
 router.get(
   "/",
   verifyToken,
   requireAuth,
   requirePermission("VIEW_TRANSACTIONS_ALL"),
-  async (req, res) => {
-    try {
-      const payments = await prisma.payment.findMany({
-        orderBy: { createdAt: "desc" },
-        include: {
-          user: { select: { email: true } },
-        },
-      });
-
-      res.json({ items: payments });
-    } catch (err) {
-      console.error("payments list error", err);
-      res.status(500).json({ error: "Failed to load payments" });
-    }
-  }
+  listAllPayments
 );
-
 
 export default router;

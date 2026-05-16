@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,7 +21,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Mail, Phone, MapPin, Send, ShieldCheck, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+  Mail,
+  MapPin,
+  Phone,
+  Send,
+  ShieldCheck,
+} from "lucide-react";
 import { apiPost } from "@/lib/api";
 
 type EmailValidationState = "idle" | "checking" | "valid" | "invalid";
@@ -31,10 +46,14 @@ type ContactCategoryValue =
   | "feedback";
 
 const CONTACT_EMAIL = "info@cribspot.co.ke";
-const CONTACT_PHONE = "+254 724873794";
-const LOCATION = "Nairobi, CBD, XYZ Plaza";
+const CONTACT_PHONE = "+254 758803596";
+const LOCATION = "Maweni Building, Kimathi Street, Thika, KE";
 
-const CATEGORY_OPTIONS: { value: ContactCategoryValue; label: string; hint: string }[] = [
+const CATEGORY_OPTIONS: {
+  value: ContactCategoryValue;
+  label: string;
+  hint: string;
+}[] = [
   { value: "general", label: "General Inquiry", hint: "Questions about CribSpot Kenya" },
   { value: "listing-help", label: "Listing Help", hint: "Help adding, editing, or publishing listings" },
   { value: "billing", label: "Billing & Packages", hint: "Plans, slots, invoices, or payments" },
@@ -54,14 +73,19 @@ export default function ContactPage() {
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
 
-  const [fieldError, setFieldError] = useState<string>("");
-  const [successMessage, setSuccessMessage] = useState<string>("");
+  const [fieldError, setFieldError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const [emailValidationState, setEmailValidationState] = useState<EmailValidationState>("idle");
+  const [emailValidationState, setEmailValidationState] =
+    useState<EmailValidationState>("idle");
   const [emailValidationMessage, setEmailValidationMessage] = useState("");
 
-  const normalizedEmail = useMemo(() => fromEmail.trim().toLowerCase(), [fromEmail]);
+  const normalizedEmail = useMemo(
+    () => fromEmail.trim().toLowerCase(),
+    [fromEmail]
+  );
+
   const selectedCategory = useMemo(
     () => CATEGORY_OPTIONS.find((item) => item.value === category) || CATEGORY_OPTIONS[0],
     [category]
@@ -121,7 +145,9 @@ export default function ContactPage() {
     }
 
     setEmailValidationState("invalid");
-    setEmailValidationMessage(res.data.message || "That email domain does not appear able to receive mail.");
+    setEmailValidationMessage(
+      res.data.message || "That email domain does not appear able to receive mail."
+    );
     return false;
   }
 
@@ -140,8 +166,11 @@ export default function ContactPage() {
     if (message.trim().length < 10) return setFieldError("Message is too short. Add a little more detail.");
 
     setSubmitting(true);
+
     try {
-      const emailOk = emailValidationState === "valid" ? true : await validateEmailNow();
+      const emailOk =
+        emailValidationState === "valid" ? true : await validateEmailNow();
+
       if (!emailOk) {
         setFieldError("Please provide a real email address with a working mail domain.");
         return;
@@ -179,7 +208,7 @@ export default function ContactPage() {
   return (
     <main className="container py-10">
       <section className="space-y-6">
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge className="bg-brand-blue text-white">Support</Badge>
           <Badge variant="outline">Messages go directly to our inbox</Badge>
           <Badge variant="outline">We usually respond within business hours</Badge>
@@ -190,8 +219,8 @@ export default function ContactPage() {
             <CardHeader>
               <CardTitle>Contact Us</CardTitle>
               <CardDescription>
-                Have a question, want to report an issue, or need help listing? Send us a message and it will go
-                straight to our team inbox.
+                Have a question, want to report an issue, or need help listing?
+                Send us a message and it will go straight to our team inbox.
               </CardDescription>
             </CardHeader>
 
@@ -223,7 +252,7 @@ export default function ContactPage() {
                         autoComplete="email"
                       />
 
-                      <div className="flex items-center gap-2 text-xs text-gray-600 min-h-[20px]">
+                      <div className="flex min-h-[20px] items-center gap-2 text-xs text-gray-600">
                         {emailValidationState === "checking" && (
                           <>
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -245,7 +274,9 @@ export default function ContactPage() {
                           </>
                         )}
 
-                        {emailValidationState === "idle" && emailValidationMessage && <span>{emailValidationMessage}</span>}
+                        {emailValidationState === "idle" && emailValidationMessage && (
+                          <span>{emailValidationMessage}</span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -253,7 +284,10 @@ export default function ContactPage() {
 
                 <div>
                   <Label>Subject category *</Label>
-                  <Select value={category} onValueChange={(value) => setCategory(value as ContactCategoryValue)}>
+                  <Select
+                    value={category}
+                    onValueChange={(value) => setCategory(value as ContactCategoryValue)}
+                  >
                     <SelectTrigger className="mt-1 h-11">
                       <SelectValue placeholder="Choose a category" />
                     </SelectTrigger>
@@ -265,7 +299,9 @@ export default function ContactPage() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="mt-2 text-xs text-gray-500">{selectedCategory.hint}</p>
+                  <p className="mt-2 text-xs text-gray-500">
+                    {selectedCategory.hint}
+                  </p>
                 </div>
 
                 <div>
@@ -307,7 +343,11 @@ export default function ContactPage() {
                     Please avoid sharing passwords or sensitive payment PINs.
                   </div>
 
-                  <Button type="submit" className="bg-brand-blue text-white hover:bg-black" disabled={submitting}>
+                  <Button
+                    type="submit"
+                    className="bg-brand-blue text-white hover:bg-black"
+                    disabled={submitting}
+                  >
                     {submitting ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -330,6 +370,7 @@ export default function ContactPage() {
               <CardTitle>Reach us directly</CardTitle>
               <CardDescription>Quick contacts and location</CardDescription>
             </CardHeader>
+
             <CardContent className="space-y-4 text-sm">
               <div className="flex items-start gap-2">
                 <Mail className="mt-1 h-4 w-4" />
@@ -345,7 +386,10 @@ export default function ContactPage() {
                 <Phone className="mt-1 h-4 w-4" />
                 <div>
                   <div className="font-medium">Phone</div>
-                  <a className="text-brand-blue underline" href={`tel:${CONTACT_PHONE.replace(/\s+/g, "")}`}>
+                  <a
+                    className="text-brand-blue underline"
+                    href={`tel:${CONTACT_PHONE.replace(/\s+/g, "")}`}
+                  >
                     {CONTACT_PHONE}
                   </a>
                 </div>
@@ -360,8 +404,8 @@ export default function ContactPage() {
               </div>
 
               <div className="rounded-xl border bg-gray-50 p-3 text-xs text-gray-600">
-                Need help with a listing from your dashboard? You can also use the built-in support area for tracked
-                conversations.
+                Need help with a listing from your dashboard? You can also use the
+                built-in support area for tracked conversations.
               </div>
 
               <div className="text-xs text-gray-600">
