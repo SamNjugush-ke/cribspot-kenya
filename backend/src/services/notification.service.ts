@@ -2,7 +2,8 @@
 import { User, Property, Subscription, SubscriptionPlan } from "@prisma/client";
 import { sendMail } from "../utils/mailer";
 
-const APP_BASE_URL = process.env.APP_BASE_URL || "http://localhost:3000";
+const APP_BASE_URL = (process.env.APP_BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
+const LISTER_BILLING_URL = `${APP_BASE_URL}/dashboard/lister/billing`;
 
 export const Notifications = {
   async welcome(user: Pick<User, "email" | "name">) {
@@ -38,7 +39,7 @@ export const Notifications = {
       subject: `Your subscription expires in ${daysLeft} day(s)`,
       html: `<p>Hi ${user.name || "there"},</p>
              <p>Your <b>${sub.plan.name}</b> plan expires in ${daysLeft} day(s): <b>${sub.expiresAt.toDateString()}</b>.</p>
-             <p><a href="${APP_BASE_URL}/lister/subscriptions">Renew now</a></p>`,
+             <p><a href="${LISTER_BILLING_URL}">Renew now</a></p>`,
     });
   },
 
@@ -51,7 +52,7 @@ export const Notifications = {
       subject: "Subscription expired",
       html: `<p>Hi ${user.name || "there"},</p>
              <p>Your <b>${sub.plan.name}</b> plan has expired. Listings may be unpublished.</p>
-             <p><a href="${APP_BASE_URL}/lister/subscriptions">Renew to republish</a></p>`,
+             <p><a href="${LISTER_BILLING_URL}">Renew to republish</a></p>`,
     });
   },
 
